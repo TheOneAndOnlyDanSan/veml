@@ -13,9 +13,9 @@ import static reflection.FieldReflection.setFieldValue;
 class VemlToObject {
 
     private final boolean ignoreWrongNames;
-    private final int modifiers;
+    private final int[] modifiers;
 
-    VemlToObject(boolean ignoreWrongNames, int modifiers) {
+    VemlToObject(boolean ignoreWrongNames, int[] modifiers) {
         this.ignoreWrongNames = ignoreWrongNames;
         this.modifiers = modifiers;
     }
@@ -36,25 +36,26 @@ class VemlToObject {
         HashMap<String, Field> fields = new HashMap<>();
 
         for(Field field : getFields(clazz, true)) {
-            VemlName name = field.getAnnotation(VemlName.class);
+            VemlElement name = field.getAnnotation(VemlElement.class);
             if(name != null) {
-                if(fields.containsKey(name.value()) || fields.containsValue(field)) {
+                if(fields.containsKey(name.name()) || fields.containsValue(field)) {
                     throw new IllegalArgumentException();
                 }
-                fields.put(name.value(), field);
+                fields.put(name.name(), field);
             }
         }
 
         for(Field field : getFields(clazz, true)) {
             String name = field.getName();
 
-            if((fields.containsKey(name) || fields.containsValue(field)) && !field.isAnnotationPresent(VemlName.class)) {
+            if((fields.containsKey(name) || fields.containsValue(field)) && !field.isAnnotationPresent(VemlElement.class)) {
                 throw new IllegalArgumentException();
             }
 
             if(!fields.containsValue(field)) fields.put(name, field);
         }
 
+        setFields:
         for(int i = 0; i < keys.size(); i++) {
             String key = keys.get(i);
             Object value = hashMap.get(key);
@@ -62,8 +63,8 @@ class VemlToObject {
 
             Field f = fields.get(key);
 
-            if(f == null || Modifier.isStatic(f.getModifiers())) {
-                if(ignoreWrongNames) continue;
+            if(f == null || Arrays.stream(modifiers).anyMatch(modifier -> modifier == 0 && (f.getModifiers() & (Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED)) == 0 || (modifier &  f.getModifiers()) != 0)) {
+                if(ignoreWrongNames) continue setFields;
                 else throw new IllegalArgumentException();
             }
             Class<?> fieldType = f.getType();

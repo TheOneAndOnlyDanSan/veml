@@ -1,7 +1,9 @@
 import org.junit.jupiter.api.Test;
+import veml.VemlElement;
 import veml.VemlParser;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -37,17 +39,17 @@ public class VemlParserTest {
                 builder.append(f.getName());
                 builder.append(" = ");
                 builder.append(value);
-                builder.append(",");
+                builder.append(", ");
             }
         }
-        return builder.deleteCharAt(builder.length() - 1).toString().replace(",this$0 = null", "");
+        return builder.deleteCharAt(builder.length() - 2).toString().replace(", this$0 = null", "");
     }
 
     @Test
     public void primitivesTest() {
         Object root = new Object() {
-            int i;
-            short s;
+            public int i;
+            protected short s;
             long l;
             char c;
             float f;
@@ -70,6 +72,6 @@ public class VemlParserTest {
         );
 
         Object x = new VemlParser().ignoreWrongNames(true).parse(root.getClass(), veml);
-        assertEquals("i = 1,s = 1,l = 1,c = 1,f = 1.0,d = 1.1,b = 1,bool = true,clazz = int", toString(x));
+        assertEquals("i = 1, s = 1, l = 1, c = 1, f = 1.0, d = 1.1, b = 1, bool = true, clazz = int ", toString(x));
     }
 }

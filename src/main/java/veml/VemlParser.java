@@ -1,12 +1,22 @@
 package veml;
 
-import java.lang.reflect.Modifier;
 import java.util.*;
 
 public class VemlParser {
 
+    public class Modifier {
+        public static final int PACKAGE_PRIVATE = 0;
+        public static final int PUBLIC = 1;
+        public static final int PRIVATE = 2;
+        public static final int PROTECTED = 4;
+        public static final int STATIC = 8;
+        public static final int FINAL = 16;
+        public static final int VOLATILE  = 64;
+        public static final int TRANSIENT = 128;
+    }
+
     private boolean ignoreWrongNames = true;
-    private int modifiers = Modifier.STATIC;
+    private int[] modifiers = new int[]{Modifier.STATIC};
 
     public VemlParser ignoreWrongNames(boolean ignoreWrongNames) {
         this.ignoreWrongNames = ignoreWrongNames;
@@ -14,7 +24,7 @@ public class VemlParser {
     }
 
     public VemlParser ignoreFieldsWithModifiers(int ... modifiers) {
-        this.modifiers = Arrays.stream(modifiers).sum();
+        this.modifiers = modifiers;
         return this;
     }
 
