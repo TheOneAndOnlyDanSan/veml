@@ -28,12 +28,14 @@ class ObjectToVeml {
                 VemlElement element = f.getAnnotation(VemlElement.class);
 
                 String name;
+                String comment = "";
 
                 if(element == null) {
                     name = f.getName();
                 } else {
-                    if (!element.include()) continue;
-                    name = element.name();
+                    if (element.include()) continue;
+                    name = element.name().equals("") ? f.getName() : element.name();
+                    comment = element.comment().equals("") ? "" : " //" + element.comment();
                 }
                 Object fieldValue = getFieldValue(f, instance);
 
@@ -45,7 +47,7 @@ class ObjectToVeml {
                 String value = parseValue(fieldValue, f.getType(), path + (path.equals("") ? "" : ".") + name, false);
                 if(value != null) {
                     if(!isPrimitive(fieldValue)) existingObject2string.put(fieldValue, path + (path.equals("") ? "" : ".") + name);
-                    veml.add(name + " = " + value);
+                    veml.add(name + " = " + value + comment);
                 }
             }
         }

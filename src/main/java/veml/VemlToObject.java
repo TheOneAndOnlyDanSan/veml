@@ -70,7 +70,7 @@ class VemlToObject {
             }
 
             VemlElement element = f.getAnnotation(VemlElement.class);
-            if(element != null && !element.include()) {
+            if(element != null && element.include()) {
                 continue;
             }
 

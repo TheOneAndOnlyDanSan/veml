@@ -74,30 +74,30 @@ public class VemlParserTest {
             Object[] objects = new Object[]{1, 2, 3, "4", int.class};
             Object object = objects;
             Object[] objects2 = new Object[] {
-                    new Object() {
-                        int i = 1;
-                        short s = 1;
-                        long l = 1;
-                        char c = '1';
-                        float f = 1;
-                        double d = 1;
-                        byte b = 1;
-                        boolean bool = true;
-                        Class<?> clazz = int.class;
-                        Object obj = null;
-                    },
-                    new Object() {
-                        int i = 1;
-                        short s = 1;
-                        long l = 1;
-                        char c = '1';
-                        float f = 1;
-                        double d = 1;
-                        byte b = 1;
-                        boolean bool = true;
-                        Class<?> clazz = int.class;
-                        Object obj = null;
-                    }
+                new Object() {
+                    @VemlElement(comment = "comment") int i = 1;
+                    short s = 1;
+                    long l = 1;
+                    char c = '1';
+                    float f = 1;
+                    double d = 1;
+                    byte b = 1;
+                    boolean bool = true;
+                    Class<?> clazz = int.class;
+                    Object obj = null;
+                },
+                new Object() {
+                    int i = 1;
+                    short s = 1;
+                    long l = 1;
+                    char c = '1';
+                    float f = 1;
+                    double d = 1;
+                    byte b = 1;
+                    boolean bool = true;
+                    Class<?> clazz = int.class;
+                    Object obj = null;
+                }
             };
         };
 

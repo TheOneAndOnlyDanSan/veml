@@ -9,5 +9,6 @@ import java.lang.annotation.Target;
 @Target(ElementType.FIELD)
 public @interface VemlElement {
     String name() default "";
+    String comment() default "";
     boolean include() default true;
 }
