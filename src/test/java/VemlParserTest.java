@@ -4,7 +4,7 @@ import veml.VemlParser;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.List;
+import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static reflection.FieldReflection.getFieldValue;
@@ -27,51 +27,84 @@ public class VemlParserTest {
 
         for(Field f : getFields(o.getClass(), true)) {
 
+            if(f.isSynthetic()) {
+                continue;
+            }
+
             Object value = getFieldValue(f, o);
 
+            builder.append(f.getName());
+            builder.append(" = ");
             if(!isPrimitive(f.getType(), value)) {
-                builder.append(f.getName());
-                builder.append(" = ");
-                builder.append("{");
-                toString(value);
-                builder.append("}");
+                if(value == null) {
+                    builder.append("null");
+                } else {
+                    builder.append("{");
+                    builder.append(toString(value));
+                    builder.append("}");
+                }
+            } else if(f.getType().isArray()) {
+
+                builder.append("[");
+                for(Object obj : (Object[]) value) {
+                    builder.append(toString(obj));
+                }
+                builder.append("]");
             } else {
-                builder.append(f.getName());
-                builder.append(" = ");
                 builder.append(value);
-                builder.append(", ");
             }
+            builder.append(", ");
         }
-        return builder.deleteCharAt(builder.length() - 2).toString().replace(", this$0 = null", "");
+        if(builder.length() > 1) return builder.substring(0, builder.length() - 2);
+        return builder.toString();
     }
 
     @Test
     public void primitivesTest() {
         Object root = new Object() {
-            public int i;
-            protected short s;
-            long l;
-            char c;
-            float f;
-            double d;
-            byte b;
-            boolean bool;
-            Class<?> clazz;
+            int i = 1;
+            short s = 1;
+            long l = 1;
+            char c = '1';
+            float f = 1;
+            double d = 1;
+            byte b = 1;
+            boolean bool = true;
+            Class<?> clazz = int.class;
+            Object[] objects = new Object[]{1, 2, 3, "4", int.class};
+            Object object = objects;
+            Object[] objects2 = new Object[] {
+                    new Object() {
+                        int i = 1;
+                        short s = 1;
+                        long l = 1;
+                        char c = '1';
+                        float f = 1;
+                        double d = 1;
+                        byte b = 1;
+                        boolean bool = true;
+                        Class<?> clazz = int.class;
+                        Object obj = null;
+                    },
+                    new Object() {
+                        int i = 1;
+                        short s = 1;
+                        long l = 1;
+                        char c = '1';
+                        float f = 1;
+                        double d = 1;
+                        byte b = 1;
+                        boolean bool = true;
+                        Class<?> clazz = int.class;
+                        Object obj = null;
+                    }
+            };
         };
 
-        List<String> veml = List.of(
-                "i = 1",
-                "s = 1s",
-                "l = 1l",
-                "c = '1'",
-                "f = 1f",
-                "d = 1.1",
-                "b = 1b",
-                "bool = true",
-                "clazz = int.class"
-        );
-
-        Object x = new VemlParser().ignoreWrongNames(true).parse(root.getClass(), veml);
-        assertEquals("i = 1, s = 1, l = 1, c = 1, f = 1.0, d = 1.1, b = 1, bool = true, clazz = int ", toString(x));
+        VemlParser parser = new VemlParser();
+        System.out.println("");
+        parser.stringify(root).forEach(System.out::println);
+        System.out.println("");
+        assertEquals(toString(root), toString(parser.parse(root.getClass(), parser.stringify(root))));
     }
 }

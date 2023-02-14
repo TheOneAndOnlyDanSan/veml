@@ -36,12 +36,14 @@ class VemlToObject {
         HashMap<String, Field> fields = new HashMap<>();
 
         for(Field field : getFields(clazz, true)) {
-            VemlElement name = field.getAnnotation(VemlElement.class);
-            if(name != null) {
-                if(fields.containsKey(name.name()) || fields.containsValue(field)) {
+            VemlElement element = field.getAnnotation(VemlElement.class);
+            if(element != null) {
+                if(fields.containsKey(element.name()) || fields.containsValue(field)) {
                     throw new IllegalArgumentException();
                 }
-                fields.put(name.name(), field);
+                if(!element.name().equals("")) {
+                    fields.put(element.name(), field);
+                }
             }
         }
 
@@ -55,7 +57,6 @@ class VemlToObject {
             if(!fields.containsValue(field)) fields.put(name, field);
         }
 
-        setFields:
         for(int i = 0; i < keys.size(); i++) {
             String key = keys.get(i);
             Object value = hashMap.get(key);
@@ -64,9 +65,15 @@ class VemlToObject {
             Field f = fields.get(key);
 
             if(f == null || Arrays.stream(modifiers).anyMatch(modifier -> modifier == 0 && (f.getModifiers() & (Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED)) == 0 || (modifier &  f.getModifiers()) != 0)) {
-                if(ignoreWrongNames) continue setFields;
+                if(ignoreWrongNames) continue;
                 else throw new IllegalArgumentException();
             }
+
+            VemlElement element = f.getAnnotation(VemlElement.class);
+            if(element != null && !element.include()) {
+                continue;
+            }
+
             Class<?> fieldType = f.getType();
 
             if(isPrimitive(fieldType, value)) {
@@ -310,7 +317,7 @@ class VemlToObject {
                 }
                 case objectArray -> {
                     if(value.contains("[new]")) throw new IllegalArgumentException();
-                    currentObj = getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) + "[new]" : value, value.contains("-") ? value.substring(value.indexOf("-") + 1) : null, root);
+                    currentObj = getHashMapObject((value.contains("-") ? value.substring(0, value.indexOf("-")) : value) + "[new]", value.contains("-") ? value.substring(value.indexOf("-") + 1) : null, root);
                 }
                 case object -> currentObj = getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) : value, value.contains("-") ? value.substring(value.indexOf("-") +1) : null, root);
             }
@@ -462,9 +469,9 @@ class VemlToObject {
         }
 
         if(value.matches("(-?[0-9]+)([iI])?")) {
-            return Integer.parseInt(value);
+            return Integer.parseInt(value.toLowerCase().contains("i") ? value.substring(0, value.length() -1) : value);
         } else if(value.matches("(-?[0-9]+\\.?[0-9]+|[0-9]+)([dD])?")) {
-            return Double.parseDouble(value);
+            return Double.parseDouble(value.toLowerCase().contains("d") ? value.substring(0, value.length() -1) : value);
         } else if(value.matches("(-?[0-9]+\\.?[0-9]+|[0-9]+)([fF])")) {
             return Float.parseFloat(value.substring(0, value.length() -1));
         } else if(value.matches("(-?[0-9]+)([sS])")) {
@@ -484,7 +491,7 @@ class VemlToObject {
         } else if(value.contains("[")) {
             objValue = getArrayIndex(value, null, root);
         } else {
-            if(root.containsKey(value)) throw new IllegalArgumentException();
+            if(!root.containsKey(value)) throw new IllegalArgumentException();
 
             objValue = root.get(value);
         }

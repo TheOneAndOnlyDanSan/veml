@@ -2,6 +2,9 @@ package veml;
 
 import java.util.*;
 
+import static reflection.FieldReflection.getField;
+import static reflection.FieldReflection.setFieldValue;
+
 public class VemlParser {
 
     public class Modifier {
@@ -13,10 +16,11 @@ public class VemlParser {
         public static final int FINAL = 16;
         public static final int VOLATILE  = 64;
         public static final int TRANSIENT = 128;
+        static final int SYNTHETIC = 4096;
     }
 
     private boolean ignoreWrongNames = true;
-    private int[] modifiers = new int[]{Modifier.STATIC};
+    private int[] modifiers = new int[]{Modifier.STATIC, Modifier.SYNTHETIC};
 
     public VemlParser ignoreWrongNames(boolean ignoreWrongNames) {
         this.ignoreWrongNames = ignoreWrongNames;
@@ -32,14 +36,12 @@ public class VemlParser {
         try {
             return new VemlToObject(ignoreWrongNames, modifiers).parse(clazz, veml);
         } catch(Exception e) {
-            String message = e.getMessage();
-
-            if(message.equals("") || e.getClass() != IllegalArgumentException.class) throw new IllegalArgumentException("invalid veml");
-            else throw e;
+            setFieldValue(getField(Exception.class, "detailMessage", true), e, "invalid veml");
+            throw e;
         }
     }
 
     public List<String> stringify(Object instance) {
-        return new ObjectToVeml().parse(instance);
+        return new ObjectToVeml(modifiers).parse(instance, "");
     }
 }

@@ -9,4 +9,5 @@ import java.lang.annotation.Target;
 @Target(ElementType.FIELD)
 public @interface VemlElement {
     String name() default "";
+    boolean include() default true;
 }
