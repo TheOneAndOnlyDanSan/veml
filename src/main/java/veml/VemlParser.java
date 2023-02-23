@@ -1,13 +1,15 @@
 package veml;
 
 import java.util.*;
-
 import static reflection.FieldReflection.getField;
 import static reflection.FieldReflection.setFieldValue;
 
 public class VemlParser {
 
-    public class Modifier {
+    /**
+     * @see java.lang.reflect.Modifier
+     */
+    public static abstract class Modifier {
         public static final int PACKAGE_PRIVATE = 0;
         public static final int PUBLIC = 1;
         public static final int PRIVATE = 2;
@@ -16,18 +18,21 @@ public class VemlParser {
         public static final int FINAL = 16;
         public static final int VOLATILE  = 64;
         public static final int TRANSIENT = 128;
-        static final int SYNTHETIC = 4096;
+        public static final int SYNTHETIC = 4096;
     }
 
     private boolean ignoreWrongNames = true;
-    private int[] modifiers = new int[]{Modifier.STATIC, Modifier.SYNTHETIC};
+    private int[] modifiers = new int[]{Modifier.STATIC, Modifier.TRANSIENT, Modifier.SYNTHETIC};
 
     public VemlParser ignoreWrongNames(boolean ignoreWrongNames) {
         this.ignoreWrongNames = ignoreWrongNames;
         return this;
     }
 
-    public VemlParser ignoreFieldsWithModifiers(int ... modifiers) {
+    /**
+     * always ignores trusted final fields
+     */
+    public VemlParser ignoreFieldsWithModifiers(int... modifiers) {
         this.modifiers = modifiers;
         return this;
     }

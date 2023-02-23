@@ -10,5 +10,5 @@ import java.lang.annotation.Target;
 public @interface VemlElement {
     String name() default "";
     String comment() default "";
-    boolean include() default true;
+    boolean ignore() default false;
 }

@@ -1,62 +1,73 @@
 import org.junit.jupiter.api.Test;
 import veml.VemlElement;
 import veml.VemlParser;
-
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.*;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static reflection.FieldReflection.getFieldValue;
-import static reflection.FieldReflection.getFields;
+import java.util.Arrays;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static reflection.FieldReflection.*;
 
 public class VemlParserTest {
 
-    private boolean isPrimitive(Class<?> type, Object value) {
-        if(value == null) {
+    public static boolean deepEquals(Object obj1, Object obj2, int... modifiers) {
+        return objectsEqual(obj1, obj2, new IdentityHashMap<>(), modifiers);
+    }
+
+    private static boolean objectsEqual(Object obj1, Object obj2, IdentityHashMap<Object, Object> visited, int... modifiers) {
+        if (obj1 == obj2) {
             return true;
         }
 
-        Class<?> valueType = value.getClass();
-        return type.isPrimitive() || type.equals(String.class) || type.equals(Class.class) || valueType.equals(Integer.class) || valueType.equals(Long.class) || valueType.equals(Short.class) || valueType.equals(Byte.class) || valueType.equals(Float.class) || valueType.equals(Double.class) || valueType.equals(Boolean.class) || valueType.equals(Character.class);
-    }
-
-
-    public String toString(Object o) {
-        StringBuilder builder = new StringBuilder();
-
-        for(Field f : getFields(o.getClass(), true)) {
-
-            if(f.isSynthetic()) {
-                continue;
-            }
-
-            Object value = getFieldValue(f, o);
-
-            builder.append(f.getName());
-            builder.append(" = ");
-            if(!isPrimitive(f.getType(), value)) {
-                if(value == null) {
-                    builder.append("null");
-                } else {
-                    builder.append("{");
-                    builder.append(toString(value));
-                    builder.append("}");
-                }
-            } else if(f.getType().isArray()) {
-
-                builder.append("[");
-                for(Object obj : (Object[]) value) {
-                    builder.append(toString(obj));
-                }
-                builder.append("]");
-            } else {
-                builder.append(value);
-            }
-            builder.append(", ");
+        if (obj1 == null || obj2 == null) {
+            return false;
         }
-        if(builder.length() > 1) return builder.substring(0, builder.length() - 2);
-        return builder.toString();
+
+        if (obj1.getClass() != obj2.getClass()) {
+            return false;
+        }
+
+        if(obj1.getClass().isArray()) {
+            int length = Array.getLength(obj1);
+
+            if (length != Array.getLength(obj2)) {
+                return false;
+            }
+
+            for (int i = 0; i < length; i++) {
+                if (!objectsEqual(Array.get(obj1, i), Array.get(obj2, i), visited, modifiers)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if (visited.containsKey(obj1) && visited.get(obj1) == obj2) {
+            return true;
+        }
+
+        visited.put(obj1, obj2);
+
+        Field[] fields = getFields(obj1.getClass(), true);
+
+        for (Field f : fields) {
+            if (Arrays.stream(modifiers).anyMatch(modifier -> (modifier == 0 && (f.getModifiers() & (Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED)) == 0) || (modifier != 0 && (modifier & f.getModifiers()) != 0))) continue;
+
+            VemlElement element;
+            element = f.getAnnotation(VemlElement.class);
+
+            if(element != null && element.ignore()) continue;
+
+            if (!f.getType().isPrimitive() && !objectsEqual(getFieldValue(f, obj1), getFieldValue(f, obj2), visited, modifiers)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     @Test
@@ -69,10 +80,9 @@ public class VemlParserTest {
             float f = 1;
             double d = 1;
             byte b = 1;
-            boolean bool = true;
+            AtomicBoolean bool = new AtomicBoolean(true);
             Class<?> clazz = int.class;
-            Object[] objects = new Object[]{1, 2, 3, "4", int.class};
-            Object object = objects;
+            Object[] objects = new Object[]{};
             Object[] objects2 = new Object[] {
                 new Object() {
                     @VemlElement(comment = "comment") int i = 1;
@@ -84,7 +94,7 @@ public class VemlParserTest {
                     byte b = 1;
                     boolean bool = true;
                     Class<?> clazz = int.class;
-                    Object obj = null;
+                    Object obj = objects2;
                 },
                 new Object() {
                     int i = 1;
@@ -99,12 +109,15 @@ public class VemlParserTest {
                     Object obj = null;
                 }
             };
+            Object object = objects2[1];
         };
 
-        VemlParser parser = new VemlParser();
-        System.out.println("");
+        VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();
+
+        System.out.println();
         parser.stringify(root).forEach(System.out::println);
-        System.out.println("");
-        assertEquals(toString(root), toString(parser.parse(root.getClass(), parser.stringify(root))));
+        System.out.println();
+
+        assertTrue(deepEquals(root, parser.parse(root.getClass(), parser.stringify(root))));
     }
 }

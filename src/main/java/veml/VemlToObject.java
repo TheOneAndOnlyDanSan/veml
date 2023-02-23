@@ -12,6 +12,8 @@ import static reflection.FieldReflection.setFieldValue;
 
 class VemlToObject {
 
+    LinkedHashMap<String, Object> root = new LinkedHashMap<>();
+
     private final boolean ignoreWrongNames;
     private final int[] modifiers;
 
@@ -29,13 +31,16 @@ class VemlToObject {
         }
     }
 
-    private <T> T map2object(Class<T> clazz, LinkedHashMap<String, Object> hashMap, LinkedHashMap<Object, Object> hashmap2existingObjects) {
+    private <T> T map2object(Class<T> clazz, LinkedHashMap<String, Object> hashMap, IdentityHashMap<Object, Object> hashmap2existingObjects) {
         T instance = createInstanceWithoutConstructor(clazz);
+        if(!hashmap2existingObjects.containsKey(root)) hashmap2existingObjects.put(root, instance);
 
         List<String> keys = hashMap.keySet().stream().filter(Objects::nonNull).toList();
         HashMap<String, Field> fields = new HashMap<>();
 
-        for(Field field : getFields(clazz, true)) {
+        List<Field> nonFinalFields = Arrays.stream(getFields(clazz, true)).filter(f -> !(Boolean) getFieldValue(getField(Field.class, "trustedFinal"), f)).toList();
+
+        for(Field field : nonFinalFields) {
             VemlElement element = field.getAnnotation(VemlElement.class);
             if(element != null) {
                 if(fields.containsKey(element.name()) || fields.containsValue(field)) {
@@ -47,7 +52,7 @@ class VemlToObject {
             }
         }
 
-        for(Field field : getFields(clazz, true)) {
+        for(Field field : nonFinalFields) {
             String name = field.getName();
 
             if((fields.containsKey(name) || fields.containsValue(field)) && !field.isAnnotationPresent(VemlElement.class)) {
@@ -57,20 +62,19 @@ class VemlToObject {
             if(!fields.containsValue(field)) fields.put(name, field);
         }
 
-        for(int i = 0; i < keys.size(); i++) {
-            String key = keys.get(i);
+        for(String key : keys) {
             Object value = hashMap.get(key);
             Class<?> valueType = value == null ? null : value.getClass();
 
             Field f = fields.get(key);
 
-            if(f == null || Arrays.stream(modifiers).anyMatch(modifier -> modifier == 0 && (f.getModifiers() & (Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED)) == 0 || (modifier &  f.getModifiers()) != 0)) {
+            if(f == null || Arrays.stream(modifiers).anyMatch(modifier -> modifier == 0 && (f.getModifiers()&(Modifier.PUBLIC|Modifier.PRIVATE|Modifier.PROTECTED)) == 0 || (modifier&f.getModifiers()) != 0)) {
                 if(ignoreWrongNames) continue;
                 else throw new IllegalArgumentException();
             }
 
             VemlElement element = f.getAnnotation(VemlElement.class);
-            if(element != null && element.include()) {
+            if(element != null && element.ignore()) {
                 continue;
             }
 
@@ -80,11 +84,10 @@ class VemlToObject {
                 setFieldValue(f, instance, value);
                 hashmap2existingObjects.put(value, value);
             } else if(valueType != null && valueType.isArray()) {
-                hashmap2existingObjects.get(((Object[]) value)[0]);
+                setFieldValue(f, instance, hashmap2existingObjects.get(((Object[]) value)[0]));
             } else if(valueType.equals(ArrayList.class)) {
-                Class<?> componentType = fieldType.componentType();
 
-                Object objValue = list2array(componentType == null ? fieldType : componentType, (List<?>) value, hashmap2existingObjects);
+                Object objValue = list2array(fieldType.getComponentType(), (List<?>) value, hashmap2existingObjects);
 
                 setFieldValue(f, instance, objValue);
                 hashmap2existingObjects.put(value, objValue);
@@ -106,7 +109,7 @@ class VemlToObject {
         return instance;
     }
 
-    private Object list2array(Class<?> type, List<?> list, LinkedHashMap<Object, Object> hashmap2existingObjects) {
+    private Object list2array(Class<?> type, List<?> list, IdentityHashMap<Object, Object> hashmap2existingObjects) {
         int size = list.size();
         Object array = Array.newInstance(type, size);
         for (int i = 0; i < size; i++) {
@@ -129,6 +132,8 @@ class VemlToObject {
 
                 Array.set(array, i, objValue);
                 hashmap2existingObjects.put(value, objValue);
+            } else if(value.getClass().isArray()) {
+                Array.set(array, i, hashmap2existingObjects.get(((Object[]) value)[0]));
             } else {
                 Array.set(array, i, value);
                 hashmap2existingObjects.put(value, value);
@@ -293,7 +298,7 @@ class VemlToObject {
 
         Iterator<Token> tokens = getTokens(veml).iterator();
 
-        LinkedHashMap<String, Object> root = new LinkedHashMap<>();
+
         LinkedHashMap<String, Object> currentObj = root;
 
         while (tokens.hasNext()) {
@@ -306,8 +311,12 @@ class VemlToObject {
                     String key = value.substring(0, value.indexOf("="));
                     value = value.substring(value.indexOf("=") + 1);
 
-                    if(key.contains(".")) {
-                        getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root).put(key.substring(key.lastIndexOf(".") +1), string2object(value, root));
+                    if(key.contains("[]")) {
+                        if(!key.substring(key.length() -2).startsWith("[")) throw new IllegalArgumentException();
+
+                        ((ArrayList<Object>) getHashMapObject(key.substring(0, key.length() -2), null, root)).add(string2object(value, root));
+                    } else if(key.contains(".")) {
+                        ((LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root)).put(key.substring(key.lastIndexOf(".") +1), string2object(value, root));
                     } else {
                         if(currentObj.containsKey(key)) {
                             throw new IllegalArgumentException();
@@ -317,17 +326,17 @@ class VemlToObject {
                 }
                 case objectArray -> {
                     if(value.contains("[new]")) throw new IllegalArgumentException();
-                    currentObj = getHashMapObject((value.contains("-") ? value.substring(0, value.indexOf("-")) : value) + "[new]", value.contains("-") ? value.substring(value.indexOf("-") + 1) : null, root);
+                    currentObj = (LinkedHashMap<String, Object>) getHashMapObject((value.contains("-") ? value.substring(0, value.indexOf("-")) : value) + "[new]", value.contains("-") ? value.substring(value.indexOf("-") + 1) : null, root);
                 }
-                case object -> currentObj = getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) : value, value.contains("-") ? value.substring(value.indexOf("-") +1) : null, root);
+                case object -> currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) : value, value.contains("-") ? value.substring(value.indexOf("-") +1) : null, root);
             }
         }
 
-        return map2object(clazz, root, new LinkedHashMap<>());
+        return map2object(clazz, root, new IdentityHashMap<>());
     }
 
-    private LinkedHashMap<String, Object> getHashMapObject(String get, String type, LinkedHashMap<String, Object> root) {
-        if(get.equals("")) return root;
+    private Object getHashMapObject(String get, String type, LinkedHashMap<String, Object> root) {
+        if(get.equals("") || get.equals("[new]")) return root;
 
         LinkedHashMap<String, Object> last = root;
 
@@ -353,7 +362,10 @@ class VemlToObject {
             }
 
             if(last.containsKey(name)) {
-                last = (LinkedHashMap<String, Object>) last.get(name);
+                Object tempObj = last.get(name);
+                if(i +1 == names.length && !(tempObj instanceof LinkedHashMap)) return tempObj;
+
+                last = (LinkedHashMap<String, Object>) tempObj;
             } else {
 
                 last.put(name, new LinkedHashMap<>());
@@ -482,12 +494,12 @@ class VemlToObject {
             return Byte.parseByte(value.substring(0, value.length() -1));
         }
 
-        if(value.equals(".")) return root;
+        if(value.equals("super")) return new Object[]{root};
 
         Object objValue;
 
         if(value.contains(".")) {
-            objValue = getHashMapObject(value.substring(0, value.lastIndexOf(".")), null, root);
+            objValue = getHashMapObject(value, null, root);
         } else if(value.contains("[")) {
             objValue = getArrayIndex(value, null, root);
         } else {
@@ -497,7 +509,9 @@ class VemlToObject {
         }
 
         if(objValue != null && objValue.getClass().isArray()) {
-            objValue = ((Object[]) objValue)[0];
+            return objValue;
+        } else {
+            objValue = new Object[]{objValue};
         }
 
         return objValue;
