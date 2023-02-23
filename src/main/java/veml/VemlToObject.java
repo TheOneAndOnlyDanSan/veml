@@ -112,6 +112,7 @@ class VemlToObject {
     private Object list2array(Class<?> type, List<?> list, IdentityHashMap<Object, Object> hashmap2existingObjects) {
         int size = list.size();
         Object array = Array.newInstance(type, size);
+        hashmap2existingObjects.put(list, array);
         for (int i = 0; i < size; i++) {
             Object value = list.get(i);
 

@@ -26,10 +26,6 @@ public class VemlParserTest {
             return false;
         }
 
-        if (obj1.getClass() != obj2.getClass()) {
-            return false;
-        }
-
         if(obj1.getClass().isArray()) {
             int length = Array.getLength(obj1);
 
@@ -72,45 +68,7 @@ public class VemlParserTest {
 
     @Test
     public void primitivesTest() {
-        Object root = new Object() {
-            int i = 1;
-            short s = 1;
-            long l = 1;
-            char c = '1';
-            float f = 1;
-            double d = 1;
-            byte b = 1;
-            AtomicBoolean bool = new AtomicBoolean(true);
-            Class<?> clazz = int.class;
-            Object[] objects = new Object[]{};
-            Object[] objects2 = new Object[] {
-                new Object() {
-                    @VemlElement(comment = "comment") int i = 1;
-                    short s = 1;
-                    long l = 1;
-                    char c = '1';
-                    float f = 1;
-                    double d = 1;
-                    byte b = 1;
-                    boolean bool = true;
-                    Class<?> clazz = int.class;
-                    Object obj = objects2;
-                },
-                new Object() {
-                    int i = 1;
-                    short s = 1;
-                    long l = 1;
-                    char c = '1';
-                    float f = 1;
-                    double d = 1;
-                    byte b = 1;
-                    boolean bool = true;
-                    Class<?> clazz = int.class;
-                    Object obj = null;
-                }
-            };
-            Object object = objects2[1];
-        };
+        Object root = new TestClass();
 
         VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();
 

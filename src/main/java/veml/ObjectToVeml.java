@@ -124,7 +124,10 @@ class ObjectToVeml {
             return existingObject2string.get(value);
         }
 
-        if(!isPrimitive(value)) existingObject2string2.put(value, path);
+        if(!isPrimitive(value)) {
+            existingObject2string.put(value, path);
+            existingObject2string2.put(value, path);
+        }
 
         Class<?> valueType = value.getClass();
 
