@@ -6,8 +6,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static reflection.FieldReflection.*;
 
@@ -67,7 +66,7 @@ public class VemlParserTest {
     }
 
     @Test
-    public void primitivesTest() {
+    public void test() {
         Object root = new TestClass();
 
         VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();
