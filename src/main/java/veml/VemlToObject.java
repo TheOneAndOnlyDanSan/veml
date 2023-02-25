@@ -89,7 +89,7 @@ class VemlToObject {
 
                 Class<?> type = getClassByName((String) ((ArrayList<?>) value).get(0));
 
-                Object objValue = list2array(type == null ? fieldType.getComponentType() : type.getComponentType(), (List<?>) value, hashmap2existingObjects);
+                Object objValue = list2array(type == null ? fieldType.getComponentType() : type, (List<?>) value, hashmap2existingObjects);
 
                 setFieldValue(f, instance, objValue);
                 hashmap2existingObjects.put(value, objValue);
@@ -121,7 +121,7 @@ class VemlToObject {
             if (value instanceof List) {
                 Class<?> newType = getClassByName((String) ((ArrayList<?>) value).get(0));
 
-                Object objValue = list2array(newType == null ? type : newType.getComponentType(), (List<?>) value, hashmap2existingObjects);
+                Object objValue = list2array(newType == null ? type : newType, (List<?>) value, hashmap2existingObjects);
 
                 Array.set(array, i -1, objValue);
                 hashmap2existingObjects.put(value, objValue);
@@ -216,7 +216,7 @@ class VemlToObject {
                         case "[" -> {
                             if(finishedKey) {
                                 depth++;
-                            } else if(objDepth == 0) {
+                            } else if(objDepth == 0 && key.equals("")) {
                                 objDepth++;
                                 inObjectArray = true;
                                 finishedObjectArray = false;
@@ -227,7 +227,7 @@ class VemlToObject {
                         case "]" -> {
                             if(finishedKey) {
                                 depth--;
-                            } else if(!finishedObjectArray) {
+                            } else if(!finishedObjectArray && !inObject) {
                                 objDepth--;
                                 if(objDepth == 0) {
                                     finishedKey = true;
@@ -334,12 +334,17 @@ class VemlToObject {
                     value = value.substring(value.indexOf("=") + 1);
 
                     if(key.contains(".")) {
-                        getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root).put(key.substring(key.lastIndexOf(".") +1), string2object(value, root));
+                        if(key.startsWith("super")) {
+                            key = key.replace("super.", "");
+                            ((LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true)).put(key.substring(key.lastIndexOf(".") + 1), string2object(value, root));
+                        } else {
+                            ((LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, currentObj, true)).put(key.substring(key.lastIndexOf(".") + 1), string2object(value, currentObj));
+                        }
                     } else {
                         if(currentObj.containsKey(key)) {
                             throw new IllegalArgumentException();
                         }
-                        currentObj.put(key, string2object(value, root));
+                        currentObj.put(key, string2object(value, currentObj));
                     }
                 }
                 case objectArray -> {
@@ -352,7 +357,7 @@ class VemlToObject {
                         LinkedHashMap<String, Object> getFrom = root;
 
                         if(key.contains(".")) {
-                            getFrom = getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root);
+                            getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true);
                             key = key.substring(key.lastIndexOf(".") +1);
                         }
 
@@ -383,7 +388,7 @@ class VemlToObject {
                     currentObj = root;
 
                     if(type == null) {
-                        currentObj = getHashMapObject(value + "[new]", null, root);
+                        currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value + "[new]", null, root, true);
                     } else if(type.contains("=")) {
                         type = type.substring(1).trim();
                         String key = value.substring(0, value.indexOf("-"));
@@ -391,7 +396,7 @@ class VemlToObject {
                         LinkedHashMap<String, Object> getFrom = root;
 
                         if(key.contains(".")) {
-                            getFrom = getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root);
+                            getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true);
                             key = key.substring(key.lastIndexOf(".") +1);
                         }
 
@@ -410,17 +415,17 @@ class VemlToObject {
 
                         addTo.add(parseValue(type, root));
                     } else {
-                        currentObj = getHashMapObject(value.substring(0, value.indexOf("-")) + "[new]", type, root);
+                        currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value.substring(0, value.indexOf("-")) + "[new]", type, root, true);
                     }
                 }
-                case object -> currentObj = getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) : value, value.contains("-") ? value.substring(value.indexOf("-") +1) : null, root);
+                case object -> currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value.contains("-") ? value.substring(0, value.indexOf("-")) : value, value.contains("-") ? value.substring(value.indexOf("-") +1) : null, root, true);
             }
         }
 
         return map2object(clazz, root, new IdentityHashMap<>());
     }
 
-    private LinkedHashMap<String, Object> getHashMapObject(String get, String type, LinkedHashMap<String, Object> root) {
+    private Object getHashMapObject(String get, String type, LinkedHashMap<String, Object> root, boolean create) {
         if(get.equals("") || get.equals("[new]")) return root;
 
         LinkedHashMap<String, Object> last = root;
@@ -434,6 +439,8 @@ class VemlToObject {
 
                 LinkedHashMap<String, Object> tempMap = (LinkedHashMap<String, Object>) getArrayIndex(name, i +1 == names.length ? type : null, last);
                 if(tempMap == null) {
+                    if(!create) throw new IllegalArgumentException();
+
                     List<Object> arrayMap = new ArrayList<>();
 
                     LinkedHashMap<String, Object> map = new LinkedHashMap<>();
@@ -448,8 +455,19 @@ class VemlToObject {
             }
 
             if(last.containsKey(name)) {
-                last = (LinkedHashMap<String, Object>) last.get(name);
+                Object tmp = last.get(name);
+                if(tmp.getClass().isArray()) {
+                    tmp = ((Object[]) tmp)[0];
+                }
+
+                if(tmp instanceof ArrayList<?>) {
+                    if(i +1 != names.length) throw new IllegalStateException();
+                    return tmp;
+                }
+
+                last = (LinkedHashMap<String, Object>) tmp;
             } else {
+                if(!create) throw new IllegalArgumentException();
 
                 last.put(name, new LinkedHashMap<>());
                 last = (LinkedHashMap<String, Object>) last.get(name);
@@ -478,25 +496,6 @@ class VemlToObject {
             int currentIndex = index.get(i);
 
             if(currentIndex == -1) {
-                if(list.size() == 1) {
-
-                    if(i +1 == index.size()) {
-                        list.add(null);
-                    } else {
-                        LinkedHashMap<Integer, Object> newMap = new LinkedHashMap<>();
-
-                        LinkedHashMap<String, String> properties = new LinkedHashMap<>();
-
-                        if(type != null) {
-                            properties.put("typeObject", type);
-                        }
-
-                        newMap.put(null, properties);
-
-                        list.add(newMap);
-                    }
-                }
-
                 currentIndex = list.size() -1;
             } else if(currentIndex == -2) {
                 currentIndex = list.size();
@@ -535,11 +534,12 @@ class VemlToObject {
             get = get.replaceFirst("\\\\".substring(1) + currentIndex, "");
 
             currentIndex = currentIndex.substring(1, currentIndex.length() -1);
-            int lastIndex = currentIndex.equals("new") ? 0 :Integer.parseInt(currentIndex);
+            int lastIndex = currentIndex.equals("") || currentIndex.equals("new") ? 0 :Integer.parseInt(currentIndex);
             if(lastIndex < 0) {
                 throw new IllegalArgumentException();
             }
 
+            lastIndex = currentIndex.equals("") ? -1 : lastIndex;
             lastIndex = currentIndex.equals("new") ? -2 : lastIndex;
 
             if(lastIndex >= 0) {
@@ -559,7 +559,7 @@ class VemlToObject {
         }
     }
 
-    private Object parseValue(String value, LinkedHashMap<String, Object> root) {
+    private Object parseValue(String value, LinkedHashMap<String, Object> currentObj) {
 
         if (value.equals("null")) {
             return null;
@@ -599,13 +599,19 @@ class VemlToObject {
         Object objValue;
 
         if(value.contains(".")) {
-            objValue = getHashMapObject(value, null, root);
-        } else if(value.contains("[")) {
-            objValue = getArrayIndex(value, null, root);
-        } else {
-            if(!root.containsKey(value)) throw new IllegalArgumentException();
+            if(value.startsWith("super"))  {
+                value = value.replace("super.", "");
+                objValue = getHashMapObject(value, null, root, false);
+            } else {
+                objValue = getHashMapObject(value, null, currentObj, false);
+            }
 
-            objValue = root.get(value);
+        } else if(value.contains("[")) {
+            objValue = getArrayIndex(value, null, currentObj);
+        } else {
+            if(!currentObj.containsKey(value)) throw new IllegalArgumentException();
+
+            objValue = currentObj.get(value);
         }
 
         if(objValue != null && objValue.getClass().isArray()) {
@@ -623,9 +629,9 @@ class VemlToObject {
         if(value.matches("\\[.*?].+")) {
             values.add(value.substring(value.indexOf("]") +1).trim());
             value = value.replace(value.substring(value.indexOf("]") +1), "");
+        } else {
+            values.add(null);
         }
-
-
 
         if(value.equals("[]")) return values;
 

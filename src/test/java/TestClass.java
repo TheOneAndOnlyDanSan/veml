@@ -1,60 +1,40 @@
-import veml.VemlElement;
-import java.util.Arrays;
-import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class TestClass {
-    int i = 1;
-    short s = 1;
-    long l = 1;
-    char c = '1';
-    float f = 1;
-    double d = 1;
-    byte b = 1;
+abstract class TestClassSuperClass {
+    int i = 11;
+}
+
+class TestClass2 {
+    boolean[] boolArray = new boolean[]{true, true, false};
+    double[] dblArray = new double[]{ 1, 2, 100000 };
+    char[] charArray = new char[]{'a', 'f' };
+    String name = "Rachel";
     AtomicBoolean bool = new AtomicBoolean(true);
-    Class<?> clazz = int.class;
-    Object[] objects = new Integer[]{};
-    Object[] objects2 = new Index[] {
-            new Index0(),
-            null,
-            new Index1()
-    };
-    Object object = objects2[1];
-    IdentityHashMap<Object, Object> map = new IdentityHashMap<>();
 
-    TestClass() {
-        map.put(object, objects);
-        map.put(objects, Arrays.copyOf(objects2, 3));
-
-        objects2[1] = objects2[0];
-        ((Index1) objects2[2]).obj = objects2;
+    public TestClass2(String name) {
+        this.name = name;
     }
+}
 
-    public interface Index{}
+class TestClass3 {
+    AtomicBoolean bool;
 
-    public static class Index0 implements Index {
-        @VemlElement(comment = "comment") int i = 1;
-        short s = 1;
-        long l = 1;
-        char c = '1';
-        float f = 1;
-        double d = 1;
-        byte b = 1;
-        boolean bool = true;
-        Class<?> clazz = int.class;
-        Object obj = null;
+    TestClass3(AtomicBoolean bool) {
+        this.bool = bool;
     }
+}
 
-    public static class Index1 implements Index {
-        int i = 1;
-        short s = 1;
-        long l = 1;
-        char c = '1';
-        float f = 1;
-        double d = 1;
-        byte b = 1;
-        boolean bool = true;
-        Class<?> clazz = int.class;
-        Object obj = null;
-    }
+public class TestClass extends TestClassSuperClass {
+    short s = 2;
+    long l = 30;
+    char c = 'e';
+    float f = 3.3f;
+    double d = 4.4;
+    byte b = 5;
+
+    int[] intArray = new int[]{1, 2, 3, 4};
+    Object[] objArray = new Object[]{1, 2, 3, new TestClass2("violet")};
+    TestClass2 z = new TestClass2("violet");
+    TestClass2 x = (TestClass2) objArray[3];
+    TestClass3 y = new TestClass3(x.bool);
 }

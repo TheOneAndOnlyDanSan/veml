@@ -1,9 +1,13 @@
 import org.junit.jupiter.api.Test;
 import veml.VemlElement;
 import veml.VemlParser;
+
+import java.io.IOException;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
 
@@ -70,7 +74,7 @@ public class VemlParserTest {
     }
 
     @Test
-    public void test() {
+    public void test() throws IOException {
         TestClass root = new TestClass();
 
         VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();

@@ -39,8 +39,10 @@ class ObjectToVeml {
                     comment = element.comment().equals("") ? "" : " //" + element.comment();
                 }
 
-                if(isPrimitive(getFieldValue(f, instance), null) || f.getType().isArray() && (isPrimitive(null, f.getType().getComponentType()) || ((Object[]) getFieldValue(f, instance)).length == 0)) {
-                    add(name, f, instance, comment, path, existingObject2string);
+                Object obj = getFieldValue(f, instance);
+
+                if(isPrimitive(obj, null) || (f.getType().isArray() || obj.getClass().isArray()) && (array2list(obj).stream().map(value -> isPrimitive(null, value.getClass())).allMatch(value -> value) || array2list(obj).size() == 0)) {
+                    add(name, f, instance, comment, path, null);
                 } else {
                     if (objects.containsKey(name)) {
                         objects.get(name).add(new Object[]{name, f, instance, comment, path});
@@ -83,14 +85,7 @@ class ObjectToVeml {
         for(LinkedList<Object[]> objses : list) {
             for(Object[] objs : objses){
                 Object value = getFieldValue((Field) objs[1], objs[2]);
-                if(existingObject2stringList.containsKey(value)) {
-                    if(existingObject2stringList.get(value).endsWith("]")) {
-                        veml.add("[]");
-                    } else {
-                        veml.add("{}");
-                    }
-                    veml.add("");
-                }
+                close();
 
                 add((String) objs[0], (Field) objs[1], objs[2], (String) objs[3], (String) objs[4], existingObject2stringList);
             }
@@ -120,15 +115,24 @@ class ObjectToVeml {
     private String parseValue(Object value, Class<?> type, String path, boolean isArray, IdentityHashMap<Object, String> existingObject2string2) {
         if(value == null) return "null";
 
-        if(existingObject2string2.containsKey(value)) {
-            return existingObject2string2.get(value);
-        } else if(existingObject2string.containsKey(value)) {
-            return existingObject2string.get(value);
+        if(existingObject2string.containsKey(value)) {
+            String output = existingObject2string.get(value);
+
+
+            if(path.contains(".")) {
+                veml.remove(veml.size() -1);
+                veml.remove(veml.size() -1);
+                path = path.substring(0, path.lastIndexOf("."));
+            }
+            else path = "";
+
+            if(output.startsWith(path)) return output.replace(path + ".", "");
+            else return "super." + output;
         }
 
         if(!isPrimitive(value, null)) {
             existingObject2string.put(value, path);
-            existingObject2string2.put(value, path);
+            if(existingObject2string2 != null) existingObject2string2.put(value, (isArray ? "[" : "{") + path);
         }
 
         Class<?> valueType = value.getClass();
@@ -147,28 +151,28 @@ class ObjectToVeml {
             if(valueType == Class.class) return ((Class<?>) value).getTypeName() + ".class";
         } else if(valueType.isArray()) {
             StringBuilder builder = new StringBuilder();
-            Object[] arrayValue = (Object[]) value;
+            List<?> arrayValue = array2list(value);
 
-            if(arrayValue.length == 0 || Arrays.stream(arrayValue).filter(v -> !isPrimitive(v, null)).toList().size() == 0) {
+            if(arrayValue.size() == 0 || arrayValue.stream().filter(v -> !isPrimitive(v, null)).toList().size() == 0) {
                 builder.append("[");
 
-                for(int i = 0;i < arrayValue.length;i++) {
-                    Object o = arrayValue[i];
+                for(int i = 0;i < arrayValue.size();i++) {
+                    Object o = arrayValue.get(i);
                     builder.append(parseValue(o, type.componentType(), path + "[" + i + "]", true, existingObject2string2));
                     builder.append(", ");
                 }
 
-                if(arrayValue.length > 1) {
-                    return builder.substring(0, builder.length() - 2) + "]";
+                if(arrayValue.size() >= 1) {
+                    return builder.substring(0, builder.length() - 2) + "]" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName());
                 }
-                return builder + "]" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName());
+                return builder + "]" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName());
             } else {
 
                 veml.add("");
-                veml.add("|" + path + "|" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName()));
+                veml.add("|" + path + "|" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName()));
 
-                for(int i = 0;i < arrayValue.length;i++) {
-                    Object o = arrayValue[i];
+                for(int i = 0;i < arrayValue.size();i++) {
+                    Object o = arrayValue.get(i);
                     o = parseValue(o, type.componentType(), path + "[" + i + "]", true, existingObject2string2);
 
                     if(!(o == null)) {
@@ -185,10 +189,70 @@ class ObjectToVeml {
             }
 
         } else {
-            veml.add("");
+            if(!veml.get(veml.size() -1).equals("")) veml.add("");
             veml.add((isArray ? "[" : "{") + (isArray ? path.substring(0, path.lastIndexOf("[")) : path) + (isArray ? "]" : "}") + (value.getClass() == type ? "" : " " + value.getClass().getTypeName()));
             parse(value, path);
         }
         return null;
+    }
+
+    private void close() {
+        List<String> last = veml.stream().filter(s -> (s.startsWith("[") && s.endsWith("]") || s.startsWith("{") && s.endsWith("}")) || s.startsWith("[") && s.contains("=")).toList();
+
+        if(last.size() != 0 && !last.get(last.size() - 1).contains("=") && last.get(last.size() - 1).length() != 2) {
+            String open = last.get(last.size() - 1).substring(0, 1);
+            veml.add(open.equals("{") ? "{}" : "[]");
+            veml.add("");
+        }
+    }
+
+    private List<Object> array2list(Object array) {
+        Class<?> arrayType = array.getClass().getComponentType();
+        List<Object> list = new ArrayList<>();
+
+        if (arrayType == int.class) {
+            int[] intArray = (int[]) array;
+            for (int i : intArray) {
+                list.add(i);
+            }
+        } else if (arrayType == float.class) {
+            float[] floatArray = (float[]) array;
+            for (float f : floatArray) {
+                list.add(f);
+            }
+        } else if (arrayType == double.class) {
+            double[] doubleArray = (double[]) array;
+            for (double d : doubleArray) {
+                list.add(d);
+            }
+        } else if (arrayType == boolean.class) {
+            boolean[] booleanArray = (boolean[]) array;
+            for (boolean b : booleanArray) {
+                list.add(b);
+            }
+        } else if (arrayType == byte.class) {
+            byte[] byteArray = (byte[]) array;
+            for (byte b : byteArray) {
+                list.add(b);
+            }
+        } else if (arrayType == char.class) {
+            char[] charArray = (char[]) array;
+            for (char c : charArray) {
+                list.add(c);
+            }
+        } else if (arrayType == short.class) {
+            short[] shortArray = (short[]) array;
+            for (short s : shortArray) {
+                list.add(s);
+            }
+        } else if (arrayType == long.class) {
+            long[] longArray = (long[]) array;
+            for (long l : longArray) {
+                list.add(l);
+            }
+        } else {
+            Collections.addAll(list, (Object[]) array);
+        }
+        return list;
     }
 }
