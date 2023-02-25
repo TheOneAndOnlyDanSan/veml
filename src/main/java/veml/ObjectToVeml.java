@@ -3,6 +3,7 @@ package veml;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static reflection.FieldReflection.*;
 
@@ -38,8 +39,9 @@ class ObjectToVeml {
                     comment = element.comment().equals("") ? "" : " //" + element.comment();
                 }
 
-                if(doObjects || isPrimitive(getFieldValue(f, instance)) || f.getType().isArray() && (((Object[]) getFieldValue(f, instance)).length == 0 || (isPrimitive(((Object[]) getFieldValue(f, instance))[0])))) add(name, f, instance, comment, path, existingObject2string);
-                else {
+                if(isPrimitive(getFieldValue(f, instance), null) || f.getType().isArray() && (isPrimitive(null, f.getType().getComponentType()) || ((Object[]) getFieldValue(f, instance)).length == 0)) {
+                    add(name, f, instance, comment, path, existingObject2string);
+                } else {
                     if (objects.containsKey(name)) {
                         objects.get(name).add(new Object[]{name, f, instance, comment, path});
                     } else {
@@ -52,47 +54,45 @@ class ObjectToVeml {
             }
         }
 
-        if(!doObjects) {
-            LinkedList<Object[]>[] list = new LinkedList[objects.size()];
-            int put = 0;
+        LinkedList<Object[]>[] list = new LinkedList[objects.size()];
+        int put = 0;
 
-            IdentityHashMap<Object, String> existingObject2stringList = new IdentityHashMap<>();
+        IdentityHashMap<Object, String> existingObject2stringList = new IdentityHashMap<>();
 
-            for(LinkedList<Object[]> objses : objects.values()) {
-                for(Object[] objs :objses){
-                    if(existingObject2string.containsKey(getFieldValue((Field) objs[1], objs[2]))) {
-                        list[put] = new LinkedList<>();
-                        list[put].add(objs);
-                        put++;
-                    }
+        for(LinkedList<Object[]> objses : objects.values()) {
+            for(Object[] objs :objses){
+                if(existingObject2string.containsKey(getFieldValue((Field) objs[1], objs[2]))) {
+                    list[put] = new LinkedList<>();
+                    list[put].add(objs);
+                    put++;
                 }
             }
+        }
 
-            for(LinkedList<Object[]> objses : objects.values()) {
-                for(Object[] objs :objses){
-                    Object key = getFieldValue((Field) objs[1], objs[2]);
-                    if(!existingObject2string.containsKey(key)) {
-                        list[put] = new LinkedList<>();
-                        list[put].add(objs);
-                        put++;
-                    }
+        for(LinkedList<Object[]> objses : objects.values()) {
+            for(Object[] objs :objses){
+                Object key = getFieldValue((Field) objs[1], objs[2]);
+                if(!existingObject2string.containsKey(key)) {
+                    list[put] = new LinkedList<>();
+                    list[put].add(objs);
+                    put++;
                 }
             }
+        }
 
-            for(LinkedList<Object[]> objses : list) {
-                for(Object[] objs : objses){
-                    Object value = getFieldValue((Field) objs[1], objs[2]);
-                    if(existingObject2stringList.containsKey(value)) {
-                        if(existingObject2stringList.get(value).endsWith("]")) {
-                            veml.add("[]");
-                        } else {
-                            veml.add("{}");
-                        }
-                        veml.add("");
+        for(LinkedList<Object[]> objses : list) {
+            for(Object[] objs : objses){
+                Object value = getFieldValue((Field) objs[1], objs[2]);
+                if(existingObject2stringList.containsKey(value)) {
+                    if(existingObject2stringList.get(value).endsWith("]")) {
+                        veml.add("[]");
+                    } else {
+                        veml.add("{}");
                     }
-
-                    add((String) objs[0], (Field) objs[1], objs[2], (String) objs[3], (String) objs[4], existingObject2stringList);
+                    veml.add("");
                 }
+
+                add((String) objs[0], (Field) objs[1], objs[2], (String) objs[3], (String) objs[4], existingObject2stringList);
             }
         }
 
@@ -108,10 +108,12 @@ class ObjectToVeml {
         }
     }
 
-    private boolean isPrimitive(Object value) {
-        if(value == null) return true;
+    private boolean isPrimitive(Object value, Class<?> valueType) {
+        if(valueType == null) {
+            if(value == null) return true;
+            valueType = value.getClass();
+        }
 
-        Class<?> valueType = value.getClass();
         return valueType.isPrimitive() || valueType.equals(String.class) || valueType.equals(Class.class) || valueType.equals(Integer.class) || valueType.equals(Long.class) || valueType.equals(Short.class) || valueType.equals(Byte.class) || valueType.equals(Float.class) || valueType.equals(Double.class) || valueType.equals(Boolean.class) || valueType.equals(Character.class);
     }
 
@@ -124,14 +126,14 @@ class ObjectToVeml {
             return existingObject2string.get(value);
         }
 
-        if(!isPrimitive(value)) {
+        if(!isPrimitive(value, null)) {
             existingObject2string.put(value, path);
             existingObject2string2.put(value, path);
         }
 
         Class<?> valueType = value.getClass();
 
-        if(isPrimitive(value)) {
+        if(isPrimitive(value, null)) {
 
             if(valueType == String.class) return "\"" + value + "\"";
             if(valueType == Integer.class) return value + "";
@@ -147,7 +149,7 @@ class ObjectToVeml {
             StringBuilder builder = new StringBuilder();
             Object[] arrayValue = (Object[]) value;
 
-            if(arrayValue.length == 0 || Arrays.stream(arrayValue).filter(v -> !isPrimitive(v)).toList().size() == 0) {
+            if(arrayValue.length == 0 || Arrays.stream(arrayValue).filter(v -> !isPrimitive(v, null)).toList().size() == 0) {
                 builder.append("[");
 
                 for(int i = 0;i < arrayValue.length;i++) {
@@ -159,22 +161,25 @@ class ObjectToVeml {
                 if(arrayValue.length > 1) {
                     return builder.substring(0, builder.length() - 2) + "]";
                 }
-                return builder + "]";
+                return builder + "]" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName());
             } else {
+
+                veml.add("");
+                veml.add("|" + path + "|" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName()));
+
                 for(int i = 0;i < arrayValue.length;i++) {
                     Object o = arrayValue[i];
                     o = parseValue(o, type.componentType(), path + "[" + i + "]", true, existingObject2string2);
 
-                    if(o != null) {
-                        String close;
-                        List<String> last = veml.stream().filter(s -> !s.equals("")).map(s -> s.substring(0, 2)).filter(s -> s.substring(0, 1).equals("[") || s.substring(0, 1).equals("{")).toList();
+                    if(!(o == null)) {
+                        if(i != 0) {
+                            List<String> last = veml.stream().filter(s -> s.startsWith("[") && s.endsWith("]") || s.startsWith("{") && s.endsWith("}") || s.startsWith("[") && s.contains("=")).toList();
 
-                        if(last.get(last.size() -1).equals("[]") || last.get(last.size() -1).equals("[]")) close = "";
-                        else close = last.get(last.size() -1).substring(0, 1);
-
-                        if(!close.equals("")) veml.add(close.equals("[") ? "[]" : "{}");
-                        if(!close.equals("")) veml.add("");
-                        veml.add(path + "[] = " + o);
+                            if(last.size() != 0 && !last.get(last.size() - 1).contains("=")) {
+                                veml.add("");
+                            }
+                        }
+                        veml.add("[" + path + "] = " + o);
                     }
                 }
             }

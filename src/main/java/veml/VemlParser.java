@@ -1,8 +1,8 @@
 package veml;
 
 import java.util.*;
-import static reflection.FieldReflection.getField;
-import static reflection.FieldReflection.setFieldValue;
+
+import static reflection.FieldReflection.*;
 
 public class VemlParser {
 
@@ -41,7 +41,8 @@ public class VemlParser {
         try {
             return new VemlToObject(ignoreWrongNames, modifiers).parse(clazz, veml);
         } catch(Exception e) {
-            setFieldValue(getField(Exception.class, "detailMessage", true), e, "invalid veml");
+            String message = (String) getFieldValue(getField(Exception.class, "detailMessage", true), e);
+            setFieldValue(getField(Exception.class, "detailMessage", true), e, "invalid veml" + (message == null || !message.equals("") ? "" : ": " + message));
             throw e;
         }
     }

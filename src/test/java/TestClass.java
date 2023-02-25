@@ -1,5 +1,6 @@
 import veml.VemlElement;
-
+import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TestClass {
@@ -12,22 +13,24 @@ public class TestClass {
     byte b = 1;
     AtomicBoolean bool = new AtomicBoolean(true);
     Class<?> clazz = int.class;
-    Object[] objects = new Object[]{};
+    Object[] objects = new Integer[]{};
     Object[] objects2 = new Index[] {
             new Index0(),
             null,
             new Index1()
     };
     Object object = objects2[1];
+    IdentityHashMap<Object, Object> map = new IdentityHashMap<>();
 
     TestClass() {
+        map.put(object, objects);
+        map.put(objects, Arrays.copyOf(objects2, 3));
+
         objects2[1] = objects2[0];
         ((Index1) objects2[2]).obj = objects2;
     }
 
-    public interface Index{
-
-    };
+    public interface Index{}
 
     public static class Index0 implements Index {
         @VemlElement(comment = "comment") int i = 1;

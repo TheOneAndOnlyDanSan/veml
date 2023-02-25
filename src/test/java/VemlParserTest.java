@@ -25,6 +25,10 @@ public class VemlParserTest {
             return false;
         }
 
+        if (obj1.getClass() != obj2.getClass()) {
+            return false;
+        }
+
         if(obj1.getClass().isArray()) {
             int length = Array.getLength(obj1);
 
@@ -67,7 +71,7 @@ public class VemlParserTest {
 
     @Test
     public void test() {
-        Object root = new TestClass();
+        TestClass root = new TestClass();
 
         VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();
 
@@ -75,6 +79,6 @@ public class VemlParserTest {
         parser.stringify(root).forEach(System.out::println);
         System.out.println();
 
-        assertTrue(deepEquals(root, parser.parse(root.getClass(), parser.stringify(root))));
+        assertTrue(deepEquals(root, parser.parse(TestClass.class, parser.stringify(root))));
     }
 }
