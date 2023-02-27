@@ -1,15 +1,13 @@
 
-# VEML Syntax reference
+# VEML (Violet's Efficient Markup Language)
 
-Remember, VEML assumes that the values will be serialized/deserialized into an existing Java type at runtime.   So a VEML file with a variable named "i" implies that at runtime the file will be deserialized into a Java type which has a property named "i" of the appropriate type.
-
-# General Formatting
+## General Formatting
 
 - Comments are marked with //, VEML will ignore any content from the comment mark until the end of the line
 - VEML is not strict about whitespace,  Using multiple spaces or empty lines instead of a single one is allowed.
 - VEML is case sensitive, sotwo names which are different only in CaSiNg will be considered two separate entities.
 
-# Primitive Properties
+## Primitive Values
 
     Property = Value
 
@@ -46,7 +44,7 @@ Values can be specified as follows:
 ### Assigning Classes
     myClassVariable = java.util.Vector.class
 
-# Objects and Sections
+## Objects and Sections
 
 For the following Java object:
 
@@ -114,6 +112,9 @@ and
     {object1.object2.object3}
     name = "Joe"
 
+and 
+
+    {object1.object2.object3.name} = "Joe"
 
 ## Arrays
 
@@ -168,9 +169,16 @@ Assuming the existence of a **Square** class inheriting from **Rectangle**, the 
     [myArrayofRectangles] package.Square
     side = 10
 
+Indexes in an object array can be set to a primitive value as well:
+
+    |myArrayofRectangles|
+
+    [myArrayofRectangles] = null
+    [myArrayofRectangles] = 1
+
 ## Object References
 
-It is possible to reference values defined elsewhere in a VEML file.  The following are equivalent:
+It is possible to reference values defined elsewhere in a VEML file. The following are equivalent:
 
     object1.name = "Joe"
     object2.name = "Joe"
@@ -179,6 +187,7 @@ and
 
     object1.name = "Joe"
     object2.name = object1.name
+
 
 References can also include arrays and array indexes:
 
@@ -190,11 +199,25 @@ and
 
 and
 
-    myArray[1].someObject.name = object2.name
-
+    myArray[1][0].someObject.name = object2.name
 
 Notes: 
 * With references it is possible to create object graphs and circular references.
 * Values cannot be changed, so in the last example the `myArray[1].someObject.name` property cannot have already been assigned a value.
 
-As a shorthand notation, empty brackets `[]` refer to the last index in an array.
+It is also possible to add an index to an array using `[]` before an equals sign (`=`) if there is one:
+
+    myArray[].someObject.name = "name"
+
+and
+
+    {myArray[].someObject}
+    name = "name"
+
+and
+
+    [myArray[].objectArray]
+        
+After the equals sign (`=`) if there is one `[]` gets the last index of an array:
+
+    myArray[].someObject.name = myArray[]
