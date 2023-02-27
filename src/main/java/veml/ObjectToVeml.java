@@ -3,8 +3,6 @@ package veml;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.*;
-import java.util.stream.Collectors;
-
 import static reflection.FieldReflection.*;
 
 class ObjectToVeml {
@@ -15,7 +13,6 @@ class ObjectToVeml {
         this.modifiers = modifiers;
     }
 
-    boolean doObjects = false;
     List<String> veml = new ArrayList<>();
     IdentityHashMap<Object, String> existingObject2string = new IdentityHashMap<>();
 
@@ -40,9 +37,8 @@ class ObjectToVeml {
                 }
 
                 Object obj = getFieldValue(f, instance);
-
                 if(isPrimitive(obj, null) || (f.getType().isArray() || obj.getClass().isArray()) && (array2list(obj).stream().map(value -> isPrimitive(null, value.getClass())).allMatch(value -> value) || array2list(obj).size() == 0)) {
-                    add(name, f, instance, comment, path, null);
+                    add(name, f, instance, comment, path, existingObject2string);
                 } else {
                     if (objects.containsKey(name)) {
                         objects.get(name).add(new Object[]{name, f, instance, comment, path});
@@ -85,7 +81,7 @@ class ObjectToVeml {
         for(LinkedList<Object[]> objses : list) {
             for(Object[] objs : objses){
                 Object value = getFieldValue((Field) objs[1], objs[2]);
-                close();
+                if(existingObject2stringList.containsKey(value)) close();
 
                 add((String) objs[0], (Field) objs[1], objs[2], (String) objs[3], (String) objs[4], existingObject2stringList);
             }
@@ -116,23 +112,12 @@ class ObjectToVeml {
         if(value == null) return "null";
 
         if(existingObject2string.containsKey(value)) {
-            String output = existingObject2string.get(value);
-
-
-            if(path.contains(".")) {
-                veml.remove(veml.size() -1);
-                veml.remove(veml.size() -1);
-                path = path.substring(0, path.lastIndexOf("."));
-            }
-            else path = "";
-
-            if(output.startsWith(path)) return output.replace(path + ".", "");
-            else return "super." + output;
+            return existingObject2string.get(value);
         }
 
         if(!isPrimitive(value, null)) {
             existingObject2string.put(value, path);
-            if(existingObject2string2 != null) existingObject2string2.put(value, (isArray ? "[" : "{") + path);
+            existingObject2string2.put(value, path);
         }
 
         Class<?> valueType = value.getClass();
@@ -158,21 +143,23 @@ class ObjectToVeml {
 
                 for(int i = 0;i < arrayValue.size();i++) {
                     Object o = arrayValue.get(i);
+                    if(!type.isArray()) type = type.arrayType();
                     builder.append(parseValue(o, type.componentType(), path + "[" + i + "]", true, existingObject2string2));
                     builder.append(", ");
                 }
 
-                if(arrayValue.size() >= 1) {
-                    return builder.substring(0, builder.length() - 2) + "]" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName());
+                if(arrayValue.size() > 1) {
+                    return builder.substring(0, builder.length() - 2) + "]";
                 }
-                return builder + "]" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName());
+                return builder + "]" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName());
             } else {
 
                 veml.add("");
-                veml.add("|" + path + "|" + (value.getClass() == type ? "" : " " + value.getClass().getComponentType().getTypeName()));
+                veml.add("|" + path + "|" + (value.getClass() == type ? "" : " " + value.getClass().getTypeName()));
 
                 for(int i = 0;i < arrayValue.size();i++) {
                     Object o = arrayValue.get(i);
+                    if(!type.isArray()) type = type.arrayType();
                     o = parseValue(o, type.componentType(), path + "[" + i + "]", true, existingObject2string2);
 
                     if(!(o == null)) {
@@ -189,9 +176,20 @@ class ObjectToVeml {
             }
 
         } else {
-            if(!veml.get(veml.size() -1).equals("")) veml.add("");
-            veml.add((isArray ? "[" : "{") + (isArray ? path.substring(0, path.lastIndexOf("[")) : path) + (isArray ? "]" : "}") + (value.getClass() == type ? "" : " " + value.getClass().getTypeName()));
+            String add = (isArray ? "[" : "{") + (isArray ? path.substring(0, path.lastIndexOf("[")) : path) + (isArray ? "]" : "}") + (value.getClass() == type ? "" : " " + value.getClass().getTypeName());
+
+            veml.add("");
+            veml.add(add);
             parse(value, path);
+
+            if(veml.get(veml.size() -2).equals(add)) {
+                String name = veml.get(veml.size() -1);
+                String objectPath = veml.get(veml.size() -2);
+
+                veml.remove(veml.size() -1);
+                veml.remove(veml.size() -2);
+                veml.set(veml.size() -1, objectPath.substring(1, objectPath.lastIndexOf((isArray ? "]" : "}"))) + "." + name);
+            }
         }
         return null;
     }

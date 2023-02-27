@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static reflection.FieldReflection.*;
@@ -74,7 +75,7 @@ public class VemlParserTest {
     }
 
     @Test
-    public void test() throws IOException {
+    public void test() {
         TestClass root = new TestClass();
 
         VemlParser parser = new VemlParser().ignoreFieldsWithModifiers();
@@ -82,6 +83,8 @@ public class VemlParserTest {
         System.out.println();
         parser.stringify(root).forEach(System.out::println);
         System.out.println();
+
+        parser.parse(parser.stringify(root));
 
         assertTrue(deepEquals(root, parser.parse(TestClass.class, parser.stringify(root))));
     }

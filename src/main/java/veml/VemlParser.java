@@ -2,8 +2,6 @@ package veml;
 
 import java.util.*;
 
-import static reflection.FieldReflection.*;
-
 public class VemlParser {
 
     /**
@@ -37,14 +35,12 @@ public class VemlParser {
         return this;
     }
 
+    public LinkedHashMap<String, Object> parse(List<String> veml) {
+        return (LinkedHashMap<String, Object>) new VemlToObject(ignoreWrongNames, modifiers).parse(null, veml);
+    }
+
     public <T> T parse(Class<T> clazz, List<String> veml) {
-        try {
-            return new VemlToObject(ignoreWrongNames, modifiers).parse(clazz, veml);
-        } catch(Exception e) {
-            String message = (String) getFieldValue(getField(Exception.class, "detailMessage", true), e);
-            setFieldValue(getField(Exception.class, "detailMessage", true), e, "invalid veml" + (message == null || !message.equals("") ? "" : ": " + message));
-            throw e;
-        }
+        return (T) new VemlToObject(ignoreWrongNames, modifiers).parse(clazz, veml);
     }
 
     public List<String> stringify(Object instance) {
