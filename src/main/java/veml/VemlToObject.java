@@ -2,755 +2,447 @@ package veml;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.util.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.List;
 
 import static reflection.ClassReflection.getClassByName;
 import static reflection.ClassReflection.getPrimitiveClassByName;
-import static reflection.FieldReflection.*;
 import static reflection.ConstructorReflection.createInstanceWithoutConstructor;
+import static reflection.FieldReflection.getField;
 import static reflection.FieldReflection.setFieldValue;
 
 class VemlToObject {
 
-    LinkedHashMap<String, Object> root = new LinkedHashMap<>();
+    VemlObject Super = new VemlObject();
+    VemlObject This = Super;
+    IdentityHashMap<VemlElement, Object> identityHashMap = new IdentityHashMap<>();
 
-    private final boolean ignoreWrongNames;
-    private final int[] modifiers;
+    private <T> T super2clazzType(VemlObject object, Class<T> clazz) {
+        T instance = (T) identityHashMap.get(object);
 
-    VemlToObject(boolean ignoreWrongNames, int[] modifiers) {
-        this.ignoreWrongNames = ignoreWrongNames;
-        this.modifiers = modifiers;
-    }
+        if(instance == null) instance = createInstanceWithoutConstructor(clazz);
+        if(!identityHashMap.containsKey(Super)) identityHashMap.put(Super, instance);
 
-    private record Token(TYPE type, String value) {
+        for(String key : object.keySet()) {
+            Field f = getField(clazz, key);
 
-        private enum TYPE {
-            keyValuePair,
-            object,
-            objectArray
-        }
-    }
-
-    private Object getAsObject(LinkedHashMap<String, Object> root) {
-        root.remove(null);
-        for(Map.Entry<String, Object> e : root.entrySet()) {
-            Object o = e.getValue();
-            String k = e.getKey();
-            if(o instanceof LinkedHashMap<?,?>) {
-                root.put(k, getAsObject((LinkedHashMap<String, Object>) o));
-            } else if(o.getClass().isArray()) {
-                root.put(k, ((Object[]) o)[0]);
-            } else if(o instanceof ArrayList<?>) {
-                root.put(k, removeFirstIndex((ArrayList<Object>) o));
-            }
-        }
-        return root;
-    }
-
-    private List<Object> removeFirstIndex(ArrayList<Object> list) {
-        list.remove(0);
-        return list.stream().map(v -> {
-            if(v.getClass() == ArrayList.class) return removeFirstIndex((ArrayList<Object>) v);
-            if(v.getClass() == LinkedHashMap.class) return getAsObject((LinkedHashMap<String, Object>) v);
-            if(v.getClass().isArray()) return ((Object[]) v)[0];
-            return v;
-        }).collect(Collectors.toList());
-    }
-
-    private <T> T map2object(Class<T> clazz, LinkedHashMap<String, Object> hashMap, IdentityHashMap<Object, Object> hashmap2existingObjects) {
-        if(clazz == null || clazz.isInterface() || Modifier.isAbstract(clazz.getModifiers())) throw new IllegalArgumentException("invalid class");
-
-        T instance = createInstanceWithoutConstructor(clazz);
-        if(!hashmap2existingObjects.containsKey(root)) hashmap2existingObjects.put(root, instance);
-
-        List<String> keys = hashMap.keySet().stream().filter(Objects::nonNull).toList();
-        HashMap<String, Field> fields = new HashMap<>();
-
-        List<Field> nonFinalFields = Arrays.stream(getFields(clazz, true)).filter(f -> !(Boolean) getFieldValue(getField(Field.class, "trustedFinal"), f)).toList();
-
-        for(Field field : nonFinalFields) {
-            VemlElement element = field.getAnnotation(VemlElement.class);
-            if(element != null) {
-                if(fields.containsKey(element.name()) || fields.containsValue(field)) {
-                    throw new IllegalArgumentException();
-                }
-                if(!element.name().equals("")) {
-                    fields.put(element.name(), field);
-                }
-            }
-        }
-
-        for(Field field : nonFinalFields) {
-            String name = field.getName();
-
-            if((fields.containsKey(name) || fields.containsValue(field)) && !field.isAnnotationPresent(VemlElement.class)) {
-                throw new IllegalArgumentException();
-            }
-
-            if(!fields.containsValue(field)) fields.put(name, field);
-        }
-
-        for(String key : keys) {
-            Object value = hashMap.get(key);
-            Class<?> valueType = value == null ? null : value.getClass();
-
-            Field f = fields.get(key);
-
-            if(f == null || Arrays.stream(modifiers).anyMatch(modifier -> modifier == 0 && (f.getModifiers()&(Modifier.PUBLIC|Modifier.PRIVATE|Modifier.PROTECTED)) == 0 || (modifier&f.getModifiers()) != 0)) {
-                if(ignoreWrongNames) continue;
-                else throw new IllegalArgumentException();
-            }
-
-            VemlElement element = f.getAnnotation(VemlElement.class);
-            if(element != null && element.ignore()) {
+            if(key.equals("extends")) {
+                identityHashMap.put(object.get("extends"), instance);
+                super2clazzType((VemlObject) object.get("extends"), clazz.getSuperclass());
                 continue;
             }
 
-            Class<?> fieldType = f.getType();
+            if(f == null) continue;
+            VemlElement value = object.get(key);
 
-            if(isPrimitive(fieldType, value)) {
-                setFieldValue(f, instance, value);
-                hashmap2existingObjects.put(value, value);
-            } else if(valueType != null && valueType.isArray()) {
-                setFieldValue(f, instance, hashmap2existingObjects.get(((Object[]) value)[0]));
-            } else if(valueType.equals(ArrayList.class)) {
-
-                Class<?> type = getClassByName((String) ((ArrayList<?>) value).get(0));
-
-                Object objValue = list2array(type == null ? fieldType.getComponentType() : type, (List<?>) value, hashmap2existingObjects);
-
+            Object objValue = null;
+            if(value.getClass().equals(VemlPrimitive.class)) {
+                objValue = ((VemlPrimitive) value).value;
                 setFieldValue(f, instance, objValue);
-                hashmap2existingObjects.put(value, objValue);
-            } else if(valueType.equals(LinkedHashMap.class)) {
-                LinkedHashMap<String, Object> map = ((LinkedHashMap<String, Object>) value);
-                String objectType = (String) map.get(null);
+            } else if(value.getClass().equals(VemlObject.class)) {
+                Class<?> type = ((VemlObject) value).getType();
+                type = type == null ? f.getType() : type;
 
-                Class<?> type = fieldType;
-                if(objectType != null) {
-                    type = getClassByName(objectType.substring(0, objectType.length() -6));
-                }
-
-                Object objValue = map2object(type, map, hashmap2existingObjects);
-
+                objValue = super2clazzType((VemlObject) value, type);
                 setFieldValue(f, instance, objValue);
-                hashmap2existingObjects.put(value, objValue);
+            } else if(value.getClass().equals(VemlList.class)) {
+                Class<?> type = ((VemlList) value).getType();
+                type = type == null ? f.getType().getComponentType() : type;
+
+                objValue = list2array((VemlList) value, type);
+                setFieldValue(f, instance, objValue);
+            } else if(value.getClass().equals(VemlReference.class)) {
+                objValue = identityHashMap.get(((VemlReference) value).value);
+                setFieldValue(f, instance, objValue);
             }
+
+            identityHashMap.put(value, objValue);
         }
+
         return instance;
     }
 
-    private Object list2array(Class<?> type, List<?> list, IdentityHashMap<Object, Object> hashmap2existingObjects) {
-        int size = list.size() -1;
-        Object array = Array.newInstance(type, size);
-        hashmap2existingObjects.put(list, array);
-        for (int i = 1; i < size +1; i++) {
-            Object value = list.get(i);
+    private <T> Object list2array(VemlList list, Class<T> clazz) {
+        Object array = Array.newInstance(clazz, list.size());
 
-            if (value instanceof List) {
-                Class<?> newType = getClassByName((String) ((ArrayList<?>) value).get(0));
+        for (int i = 0;i < list.size();i++) {
+            VemlElement value = list.get(i);
 
-                Object objValue = list2array(newType == null ? type : newType, (List<?>) value, hashmap2existingObjects);
+            Object objValue = null;
+            if(value.getClass().equals(VemlPrimitive.class)) {
+                objValue = ((VemlPrimitive) value).value;
+                Array.set(array, i, objValue);
+            } else if (value.getClass().equals(VemlObject.class)) {
+                VemlObject objectValue = (VemlObject) value;
+                Class<?> type = clazz;
 
-                Array.set(array, i -1, objValue);
-                hashmap2existingObjects.put(value, objValue);
-            } else if(value instanceof HashMap<?,?>) {
-                LinkedHashMap<String, Object> map = ((LinkedHashMap<String, Object>) value);
-                String objectType = (String) map.get(null);
-
-                if(objectType != null) {
-                    type = getClassByName(objectType);
+                if(objectValue.getType() != null) {
+                    type = objectValue.getType();
                 }
 
-                Object objValue = map2object(type, map, hashmap2existingObjects);
+                objValue = super2clazzType((VemlObject) value, type);
+                Array.set(array, i, objValue);
+            } else if(value.getClass().equals(VemlList.class))  {
+                VemlList listValue = (VemlList) value;
+                Class<?> type = clazz.getComponentType();
 
-                Array.set(array, i -1, objValue);
-                hashmap2existingObjects.put(value, objValue);
-            } else if(value != null && value.getClass().isArray()) {
-                Array.set(array, i -1, hashmap2existingObjects.get(((Object[]) value)[0]));
-            } else {
-                Array.set(array, i -1, value);
-                hashmap2existingObjects.put(value, value);
+                if(listValue.getType() != null) {
+                    type = listValue.getType();
+                }
+
+                objValue = list2array(listValue, type);
+                Array.set(array, i, objValue);
+            } else if(value.getClass().equals(VemlReference.class)) {
+                objValue = identityHashMap.get(((VemlReference) value).value);
+                Array.set(array, i, objValue);
             }
+
+            identityHashMap.put(value, objValue);
         }
         return array;
     }
 
-    private boolean isPrimitive(Class<?> type, Object value) {
-        if(value == null) {
-            return true;
-        }
-
-        Class<?> valueType = value.getClass();
-        return type.isPrimitive() || type.equals(String.class) || type.equals(Class.class) || valueType.equals(Integer.class) || valueType.equals(Long.class) || valueType.equals(Short.class) || valueType.equals(Byte.class) || valueType.equals(Float.class) || valueType.equals(Double.class) || valueType.equals(Boolean.class) || valueType.equals(Character.class);
-    }
-
-    private List<Token> getTokens(List<String> veml) {
-
-        List<Token> tokens = new ArrayList<>();
-
-        int depth = 0;
-        String key = "";
-        String value = "";
+    public <T> T parse(List<String> veml, Class<T> clazz) {
 
         for(String line : veml) {
+            line = removeComments(line).trim();
+            if(line.equals("")) continue;
 
-            boolean inString = false;
-            boolean isEscaped = false;
-            boolean startComment = false;
-            boolean finishedKey = false;
-            boolean inObject = false;
-            boolean inObjectArray = false;
-            boolean finishedObjectArray = true;
+            String key = line.split("=")[0];
+            String value;
 
-            int objDepth = 0;
+            if(!key.equals(line)) {
+                value = line.replace(key + "=", "");
+                key = key.trim();
 
-            line:
-            for (String c : line.split("")) {
+                if(key.startsWith("{")) {
+                    if(key.contains(".")) {
+                        String[] splitPath = key.split("\\.");
+                        String get = key.replace("." + splitPath[splitPath.length - 1], "");
+                        String last = splitPath[splitPath.length - 1];
 
-                if (depth != 0) {
-                    finishedKey = true;
-                }
-
-                if (startComment && !c.equals("/")) {
-                    throw new IllegalStateException();
-                }
-
-                if (!isEscaped && c.equals("\"")) {
-                    inString = !inString;
-                }
-
-                isEscaped = c.equals("\\");
-
-                if (!inString) {
-                    switch (c) {
-                        case "/" -> {
-                            if (startComment) break line;
-                            else startComment = true;
-                        }
-                        case "=" -> {
-                            if(!finishedKey) {
-                                finishedKey = true;
-                                continue;
-                            }
-                        }
-                        case "{" -> {
-                            inObject = true;
-                            continue;
-                        }
-                        case "}" -> {
-                            finishedKey = true;
-                            continue;
-                        }
-                        case "[" -> {
-                            if(finishedKey) {
-                                depth++;
-                            } else if(objDepth == 0 && key.equals("")) {
-                                objDepth++;
-                                inObjectArray = true;
-                                finishedObjectArray = false;
-                            } else if(!finishedObjectArray) {
-                                objDepth++;
-                            }
-                        }
-                        case "]" -> {
-                            if(finishedKey) {
-                                depth--;
-                            } else if(!finishedObjectArray && !inObject) {
-                                objDepth--;
-                                if(objDepth == 0) {
-                                    finishedKey = true;
-                                    finishedObjectArray = true;
-                                    continue;
-                                }
-                            }
-                        }
-                        case "|" -> {
-                            if(finishedObjectArray) {
-                                objDepth++;
-                                inObjectArray = true;
-                                finishedObjectArray = false;
-                            } else {
-                                objDepth--;
-                                if(objDepth == 0) {
-                                    finishedKey = true;
-                                    finishedObjectArray = true;
-                                    key += "|";
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-                if (!startComment) {
-                    if (!finishedKey) {
-                        key += c;
+                        key = key.substring(1, key.length() - 1);
+                        getObject(get, false).put(last, string2value(value.trim()));
                     } else {
-                        value += c;
+                        Super.put(key, string2value(value.trim()));
                     }
-                }
-            }
-
-            key = key.trim();
-            value = value.trim();
-
-            if(isVariableName(key)) {
-                if(ignoreWrongNames) continue;
-                else throw new IllegalArgumentException();
-            }
-
-            if (depth == 0 && objDepth == 0 && !key.equals("") || inObject || inObjectArray) {
-
-                if(!finishedKey) {
-                    throw new IllegalArgumentException();
-                }
-
-                if (inObject) {
-                    tokens.add(new Token(Token.TYPE.object, key + (value.equals("") ? "" : "-" + value)));
-                } else if (inObjectArray) {
-                    tokens.add(new Token(Token.TYPE.objectArray, key.substring(1) + (value.equals("") ? "" : "-" + value)));
+                    This = Super;
+                } else if(key.startsWith("[")) {
+                    key = key.substring(1, key.length() - 1);
+                    getList(key, false).add(string2value(value.trim()));
+                    This = Super;
                 } else {
-                    tokens.add(new Token(Token.TYPE.keyValuePair, key + "=" + value));
-                }
+                    if(key.contains(".")) {
+                        String[] splitPath = key.split("\\.");
+                        String get = key.replace("." + splitPath[splitPath.length - 1], "");
+                        String last = splitPath[splitPath.length - 1];
 
-                key = "";
-                value = "";
-            }
-        }
-        return tokens;
-    }
-
-    public boolean isVariableName(String name) {
-        if (name.isEmpty()) {
-            return false;
-        }
-
-        if (!Character.isDigit(name.charAt(0))) {
-            return false;
-        }
-
-        for (int i = 1; i < name.length(); i++) {
-            char c = name.charAt(i);
-            if (!(Character.isLetterOrDigit(c) || c == '$' || c == '_')) {
-                return false;
-            }
-        }
-
-        return !Arrays.asList(
-                "_", "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
-                "class", "const", "continue", "default", "do", "double", "else", "enum",
-                "extends", "false", "final", "finally", "float", "for", "goto", "if", "implements",
-                "import", "instanceof", "int", "interface", "long", "native", "new", "null", "package",
-                "private", "protected", "public", "return", "short", "static", "strictfp",
-                "super", "switch", "synchronized", "this", "throw", "throws", "transient", "true",
-                "try", "void", "volatile", "while").contains(name);
-    }
-
-    Object parse(Class<?> clazz, List<String> veml) {
-        try {
-            Iterator<Token> tokens = getTokens(veml).iterator();
-
-            LinkedHashMap<String, Object> currentObj = root;
-
-            while(tokens.hasNext()) {
-                Token token = tokens.next();
-
-                String value = token.value;
-
-                switch(token.type) {
-                    case keyValuePair -> {
-                        String key = value.substring(0, value.indexOf("="));
-                        value = value.substring(value.indexOf("=") + 1);
-
-                        if(key.contains("[l]")) throw new IllegalArgumentException();
-
-                        if(value.contains("[]")) value = value.replaceAll("\\[]", "[l]");
-
-                        LinkedHashMap<String, Object> getFrom = currentObj;
-
-                        if(key.contains(".")) {
-                            getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true);
-                            key = key.substring(key.lastIndexOf(".") + 1);
-                        }
-
-                        LinkedHashMap<String, Object> addTo = getFrom;
-
-                        if(key.contains("[]")) {
-                            addTo = (LinkedHashMap<String, Object>) getArrayIndex(key, null, getFrom);
-                        }
-
-                        addTo.put(key, string2object(value, root));
-                    }
-                    case objectArray -> {
-                        if(value.contains("[l]")) throw new IllegalArgumentException();
-
-                        String type = value.contains("-") ? value.substring(value.indexOf("-") + 1).trim() : null;
-
-                        if(value.contains("|")) {
-                            String key = value.substring(0, value.indexOf("|"));
-
-                            LinkedHashMap<String, Object> getFrom = root;
-
-                            if(key.contains(".")) {
-                                getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true);
-                                key = key.substring(key.lastIndexOf(".") + 1);
-                            }
-
-                            List<Object> addTo;
-
-                            if(key.contains("[]")) {
-                                addTo = (ArrayList<Object>) getArrayIndex(key, null, getFrom);
-                            } else {
-                                if(!getFrom.containsKey(key)) {
-                                    getFrom.put(key, new ArrayList<>());
-                                }
-
-                                addTo = (ArrayList<Object>) getFrom.get(key);
-                            }
-
-                            if(addTo.size() > 0 && addTo.get(0) != null) throw new IllegalArgumentException();
-
-                            if(addTo.size() == 0) addTo.add(null);
-
-                            addTo.set(0, type);
-
-                            continue;
-                        }
-
-                        currentObj = root;
-
-                        if(type == null) {
-                            currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value + "[]", null, root, true);
-                        } else if(type.contains("=")) {
-                            type = type.substring(1).trim();
-                            String key = value.substring(0, value.indexOf("-"));
-
-                            LinkedHashMap<String, Object> getFrom = root;
-
-                            if(key.contains(".")) {
-                                getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key.substring(0, key.lastIndexOf(".")), null, root, true);
-                                key = key.substring(key.lastIndexOf(".") + 1);
-                            }
-
-                            List<Object> addTo;
-
-                            if(key.contains("[")) {
-                                addTo = (ArrayList<Object>) getArrayIndex(key, null, getFrom);
-                            } else {
-                                if(!getFrom.containsKey(key)) {
-                                    getFrom.put(key, new ArrayList<>());
-                                    ((ArrayList<Object>) getFrom.get(key)).add(type);
-                                }
-
-                                addTo = (ArrayList<Object>) getFrom.get(key);
-                            }
-
-                            addTo.add(string2object(type, root));
-                        } else {
-                            currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value.substring(0, value.indexOf("-")) + "[]", type, root, true);
-                        }
-                    }
-                    case object -> {
-                        if(value.contains("[l]")) throw new IllegalArgumentException();
-                        String type = value.contains("-") ? value.substring(value.indexOf("-") + 1).trim() : null;
-
-                        if(type == null) {
-                            currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value, null, root, true);
-                        } else if(type.contains("=")) {
-                            String key = value.substring(0, value.indexOf("=") -1);
-                            type = type.substring(1).trim();
-
-                            LinkedHashMap<String, Object> getFrom = root;
-
-                            String[] keys = key.split("\\.");
-
-                            if(key.contains(".")) {
-
-                                key = "";
-                                for(int i = 0; i < keys.length -2; i++) {
-                                    key += "." + keys[i];
-                                }
-                                key = key.substring(1);
-
-                                getFrom = (LinkedHashMap<String, Object>) getHashMapObject(key, null, root, true);
-
-                                key = keys[keys.length -2];
-                            }
-
-                            LinkedHashMap<String, Object> addTo;
-
-                            if(key.contains("[]")) {
-                                addTo = (LinkedHashMap<String, Object>) getArrayIndex(key, null, getFrom);
-                            } else {
-                                if(!getFrom.containsKey(key)) {
-                                    getFrom.put(key, new LinkedHashMap<>());
-                                }
-
-                                addTo = (LinkedHashMap<String, Object>) getFrom.get(key);
-                            }
-
-                            addTo.put(keys.length == 1 ? key : keys[keys.length -1], string2object(type, root));
-                        } else {
-                            currentObj = (LinkedHashMap<String, Object>) getHashMapObject(value.substring(0, value.indexOf("-")), type, root, true);
-                        }
+                        getObject(get, false).put(last, string2value(value.trim()));
+                    } else {
+                        This.put(key, string2value(value.trim()));
                     }
                 }
-            }
-        } catch(RuntimeException e) {
-
-            String message = (String) getFieldValue(getField(Exception.class, "detailMessage", true), e);
-
-            if(message != null) {
-                message = message.substring(message.indexOf("") +1);
-            }
-
-            VemlSyntaxException v = new VemlSyntaxException(e, "invalid veml" + (message == null || !message.equals("") ? "" : ": " + message));
-
-            throw v;
-        }
-
-        if(clazz == null) return getAsObject(root);
-        return map2object(clazz, root, new IdentityHashMap<>());
-    }
-
-    private Object getHashMapObject(String get, String type, LinkedHashMap<String, Object> root, boolean create) {
-        if(get.equals("") || get.equals("[]")) return root;
-
-        LinkedHashMap<String, Object> last = root;
-
-        String[] names = get.split("\\.");
-
-        for(int i = 0;i < names.length;i++) {
-            String name = names[i];
-
-            if(name.contains("[")) {
-
-                LinkedHashMap<String, Object> tempMap = (LinkedHashMap<String, Object>) getArrayIndex(name, i +1 == names.length ? type : null, last);
-                if(tempMap == null) {
-                    if(!create) throw new IllegalArgumentException();
-
-                    List<Object> arrayMap = new ArrayList<>();
-
-                    LinkedHashMap<String, Object> map = new LinkedHashMap<>();
-                    arrayMap.add(map);
-
-                    last.put(name.substring(0, name.indexOf("[")), arrayMap);
-                    last = map;
-                } else {
-                    last = tempMap;
-                }
-                continue;
-            }
-
-            if(last.containsKey(name)) {
-                Object tmp = last.get(name);
-                if(tmp.getClass().isArray()) {
-                    tmp = ((Object[]) tmp)[0];
-                }
-
-                if(tmp instanceof ArrayList<?>) {
-                    if(i +1 != names.length) throw new IllegalStateException();
-                    return tmp;
-                }
-
-                last = (LinkedHashMap<String, Object>) tmp;
             } else {
-                if(!create) throw new IllegalArgumentException();
-
-                last.put(name, new LinkedHashMap<>());
-                last = (LinkedHashMap<String, Object>) last.get(name);
-
-                if(i +1 == names.length && type != null) {
-                    last.put(null, type);
-                }
+                changeRootObject(key);
             }
         }
-        return last;
+        return super2clazzType(Super, clazz);
     }
 
-    private Object getArrayIndex(String get, String type, LinkedHashMap<String, Object> in) {
-        List<Integer> index = getIndexes(get);
-        get = get.substring(0, get.indexOf("["));
-
-        List<Object> list = (List<Object>) in.get(get);
-        if(list == null) {
-            if(index.get(0) == -2) {
-                list = new ArrayList<>();
-                list.add(type == null ? "null" : type);
-
-                in.put(get, list);
-            } else if(index.get(0) != -2) {
-                throw new IllegalArgumentException();
-            }
+    private void changeRootObject(String newRoot) {
+        if(newRoot.equals("")) {
+            This = Super;
+            return;
         }
 
-        for (int i = 0; i < index.size(); i++) {
-            int currentIndex = index.get(i);
+        String clazz = newRoot.substring(newRoot.lastIndexOf(newRoot.startsWith("[") ? "]" : newRoot.startsWith("{") ? "}" : "|") +1);
+        newRoot = newRoot.substring(0, newRoot.length() - clazz.length()).trim();
+        clazz = clazz.trim();
+        if(clazz.equals("")) clazz = null;
+        String type = newRoot.substring(0, 1);
+        newRoot = newRoot.substring(1, newRoot.length() -1);
 
-            if(currentIndex == -1) {
-                currentIndex = list.size() -1;
-            } else if(currentIndex == -2) {
-                currentIndex = list.size();
+        if(type.equals("[")) {
+            VemlList object = getList(newRoot, false);
+            object.add(new VemlObject(clazz));
 
-                if(i +1 == index.size()) {
-                    list.add(new LinkedHashMap<String, Object>());
+            This = (VemlObject) object.get(object.size() -1);
+        } else if(newRoot.contains(".")) {
+            String[] splitPath = newRoot.split("\\.");
+            String get = newRoot.replace("." + splitPath[splitPath.length -1], "");
+            String last = splitPath[splitPath.length -1];
 
-                    if(type != null) {
-                        ((LinkedHashMap<String, Object>) list.get(list.size() -1)).put(null, type);
-                    }
-                } else {
-                    list.add(new ArrayList<>());
-                }
+            if(type.equals("{")) {
+                VemlObject object = getObject(get, false);
+                object.put(last, new VemlObject(clazz));
+
+                This = (VemlObject) object.get(last);
+            } else if(type.equals("|")) {
+                VemlList list = getList(newRoot, false);
+                list.setType(clazz);
+            }
+        } else {
+
+            if(type.equals("{")) {
+                Super.put(newRoot, new VemlObject(clazz));
+                This = (VemlObject) Super.get(newRoot);
+            } else if(type.equals("|")) {
+                VemlList list = getList(newRoot, false);
+                list.setType(clazz);
+            }
+        }
+    }
+
+    private VemlList getList(String path, boolean parsingValue) {
+        String[] splitPath = path.split("\\.");
+        VemlObject current = Super;
+        if(path.startsWith("this.") || path.startsWith("extends")) current = This;
+
+        if(splitPath.length != 1) {
+            current = getObject(path.replace("." + splitPath[splitPath.length -1], ""), parsingValue);
+        }
+
+        String key = splitPath[splitPath.length -1];
+        String realKey = key;
+
+        if(key.contains("[")) {
+            key = key.substring(0, key.indexOf("["));
+        }
+
+        if(current.containsKey(key)) {
+            VemlList list = (VemlList) current.get(key);
+
+            if(realKey.contains("[")) {
+                return (VemlList) getFromIndex(list, realKey, parsingValue, true);
+            } else {
+                return list;
             }
 
-            if(i +1 == index.size()) {
-                if(currentIndex == list.size()) {
-                    list.add(new LinkedHashMap<String, Object>());
-                }
-
-                return list.get(currentIndex);
+        } else {
+            if(!parsingValue) {
+                VemlList list = new VemlList();
+                current.put(key, list);
+                return list;
             }
-
-            if(currentIndex == list.size()) {
-                list.add(new ArrayList<>());
-                ((ArrayList<Object>) list.get(list.size() -1)).add("null");
-            }
-
-            list = (List<Object>) list.get(currentIndex);
         }
         throw new IllegalStateException();
     }
 
-    private List<Integer> getIndexes(String get) {
-        List<Integer> index = new ArrayList<>();
+    private VemlObject getObject(String path, boolean parsingValue) {
+        if(path.equals("super")) return Super;
+        if(path.equals("this")) return This;
 
-        while(get.contains("[")) {
-            String currentIndex = get.substring(get.indexOf("["), get.indexOf("]") +1);
-            get = get.replaceFirst("\\\\".substring(1) + currentIndex, "");
+        VemlObject current = Super;
+
+        if(path.startsWith("this.") || path.startsWith("extends")) current = This;
+
+        String[] splitPath = path.split("\\.");
+
+        for(String key : splitPath) {
+            if(current.containsKey(key)) {
+                VemlElement value = current.get(key);
+
+                if(value.getClass().equals(VemlObject.class)) {
+                    current = (VemlObject) value;
+                } else if(value.getClass().equals(VemlList.class)) {
+                    current = (VemlObject) getFromIndex((VemlList) value, key, parsingValue, false);
+                } else if(value.getClass().equals(VemlReference.class)) {
+                    value = ((VemlReference) value).value;
+                } else {
+                    throw new IllegalStateException();
+                }
+            } else {
+                if(key.contains("[")) {
+                    VemlList nextList = new VemlList();
+                    current.put(key, nextList);
+
+                    current = (VemlObject) getFromIndex(nextList, key, parsingValue, false);
+                } else {
+                    VemlObject nextObject = new VemlObject();
+                    current.put(key, nextObject);
+                    current = nextObject;
+                }
+            }
+        }
+        return current;
+    }
+
+    private VemlElement getFromIndex(VemlList list, String key, boolean parsingValue, boolean isLastIndexList) {
+        List<String> indexes = getIndexes(key);
+        if(indexes.size() == 0) return list;
+
+        VemlElement value = list;
+        for(int i = 0;i < indexes.size();i++) {
+            String index = indexes.get(i);
+
+            if(index.equals("")) {
+                if(parsingValue) {
+                    value = list.get(list.size() -1);
+                } else {
+                    if(i +1 == indexes.size()) {
+                        VemlElement next = null;
+                        if(isLastIndexList) {
+                            next = new VemlList();
+                        } else {
+                            next = new VemlObject();
+                        }
+
+                        list.add(next);
+                        value = next;
+                    } else {
+                        VemlList nextList = new VemlList();
+                        list.add(nextList);
+                        value = nextList;
+                    }
+                }
+            } else {
+                int indexNum = Integer.parseInt(index);
+                if(list.size() > indexNum) {
+                    value = list.get(indexNum);
+                }
+            }
+
+            if(value.getClass().equals(VemlList.class)) {
+                list = (VemlList) value;
+            } else if(value.getClass().equals(VemlReference.class)) {
+                list = (VemlList) ((VemlReference) value).value;
+            } else {
+                throw new IllegalStateException();
+            }
+        }
+
+        return value;
+    }
+
+    private List<String> getIndexes(String key) {
+        List<String> indexes = new ArrayList<>();
+
+        while(key.contains("[")) {
+            String currentIndex = key.substring(key.indexOf("["), key.indexOf("]") +1);
+            key = key.replaceFirst("\\\\".substring(1) + currentIndex, "");
 
             currentIndex = currentIndex.substring(1, currentIndex.length() -1);
-            int lastIndex = currentIndex.equals("l") || currentIndex.equals("") ? 0 :Integer.parseInt(currentIndex);
-            if(lastIndex < 0) {
-                throw new IllegalArgumentException();
-            }
-
-            lastIndex = currentIndex.equals("l") ? -1 : lastIndex;
-            lastIndex = currentIndex.equals("") ? -2 : lastIndex;
-
-            if(lastIndex >= 0) {
-                lastIndex++;
-            }
-
-            index.add(lastIndex);
+            indexes.add(currentIndex);
         }
-        return index;
+        return indexes;
     }
 
-    private Object string2object(String value, LinkedHashMap<String, Object> root) {
-        if(value.startsWith("[")) {
-            return parseArray(value, root);
-        } else {
-            return parseValue(value, root);
+    private String removeComments(String line) {
+        boolean inString = false;
+        boolean commentStart = false;
+
+        for(int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+
+            if(c == '"') inString = !inString;
+
+            if(commentStart) {
+                if(c == '\\') return line.substring(0, i-1);
+                else commentStart = false;
+            }
+
+            if(!inString && c == '\\') {
+                commentStart = true;
+            }
         }
+        return line;
     }
 
-    private Object parseValue(String value, LinkedHashMap<String, Object> currentObj) {
+    private VemlElement string2value(String value) {
+        if(value.startsWith("[")) return parseArray(value);
+        else return parseValue(value);
+    }
 
-        if (value.equals("null")) {
-            return null;
+    private VemlElement parseValue(String value) {
+
+        if(value.equals("null")) {
+            return new VemlPrimitive(null);
         } else if (value.startsWith("\"")) {
-            return value.substring(1, value.length() - 1);
+            return new VemlPrimitive(value.substring(1, value.length() - 1));
         } else if (value.startsWith("'")) {
             if(value.length() == 3) {
-                return value.charAt(1);
+                return new VemlPrimitive(value.charAt(1));
             }
-            return (char) Integer.parseInt(value.substring(3, value.length() - 1));
+            return new VemlPrimitive((char) Integer.parseInt(value.substring(3, value.length() - 1)));
         } else if (value.equals("false")) {
-            return false;
+            return new VemlPrimitive(false);
         } else if (value.equals("true")) {
-            return true;
+            return new VemlPrimitive(true);
         } else if (value.endsWith(".class")) {
             value = value.substring(0, value.length() -6);
             Class<?> clazz = getClassByName(value);
-            return clazz == null ? getPrimitiveClassByName(value) : clazz;
+            return new VemlPrimitive(clazz == null ? getPrimitiveClassByName(value) : clazz);
         }
 
         if(value.matches("(-?[0-9]+)([iI])?")) {
-            return Integer.parseInt(value.toLowerCase().contains("i") ? value.substring(0, value.length() -1) : value);
+            return new VemlPrimitive(Integer.parseInt(value.toLowerCase().contains("i") ? value.substring(0, value.length() -1) : value));
         } else if(value.matches("(-?[0-9]+\\.?[0-9]+|[0-9]+)([dD])?")) {
-            return Double.parseDouble(value.toLowerCase().contains("d") ? value.substring(0, value.length() -1) : value);
+            return new VemlPrimitive(Double.parseDouble(value.toLowerCase().contains("d") ? value.substring(0, value.length() -1) : value));
         } else if(value.matches("(-?[0-9]+\\.?[0-9]+|[0-9]+)([fF])")) {
-            return Float.parseFloat(value.substring(0, value.length() -1));
+            return new VemlPrimitive(Float.parseFloat(value.substring(0, value.length() -1)));
         } else if(value.matches("(-?[0-9]+)([sS])")) {
-            return Short.parseShort(value.substring(0, value.length() -1));
+            return new VemlPrimitive(Short.parseShort(value.substring(0, value.length() -1)));
         } else if(value.matches("(-?[0-9]+)([lL])")) {
-            return Long.parseLong(value.substring(0, value.length() -1));
+            return new VemlPrimitive(Long.parseLong(value.substring(0, value.length() -1)));
         } else if(value.matches("(-?[0-9]+)([bB])")) {
-            return Byte.parseByte(value.substring(0, value.length() -1));
+            return new VemlPrimitive(Byte.parseByte(value.substring(0, value.length() -1)));
         }
-
-        if(value.equals("super")) return new Object[]{root};
-
-        Object objValue;
 
         if(value.contains(".")) {
-            objValue = getHashMapObject(value, null, root, false);
-        } else if(value.contains("[")) {
-            objValue = getArrayIndex(value, null, currentObj);
+            String[] splitPath = value.split("\\.");
+            String get = value.replace("." + splitPath[splitPath.length -1], "");
+            String last = splitPath[splitPath.length -1];
+
+            try {
+                VemlObject obj = getObject(get, true);
+                return new VemlReference(obj.get(last));
+            } catch(Exception e) {
+                return new VemlReference( getFromIndex(getList(get, true), last, true, false));
+            }
+
         } else {
-            if(!currentObj.containsKey(value)) throw new IllegalArgumentException();
-
-            objValue = currentObj.get(value);
+            try {
+                return new VemlReference(getObject(value, true));
+            } catch(Exception e) {
+                return new VemlReference(getList(value, true));
+            }
         }
-
-        if(objValue != null && objValue.getClass().isArray()) {
-            return objValue;
-        } else {
-            objValue = new Object[]{objValue};
-        }
-
-        return objValue;
     }
 
-    private List<Object> parseArray(String value, LinkedHashMap<String, Object> root) {
-        List<Object> values = new ArrayList<>();
+    private VemlElement parseArray(String value) {
+        VemlList list = new VemlList();
+        value = value.substring(1);
 
-        if(value.matches("\\[.*?].+")) {
-            values.add(value.substring(value.indexOf("]") +1).trim());
-            value = value.replace(value.substring(value.indexOf("]") +1), "");
-        } else {
-            values.add(null);
-        }
-
-        if(value.equals("[]")) return values;
-
-        boolean isEscaped = false;
+        String index = "";
         boolean inString = false;
         int depth = 0;
 
-        String currentValue = "";
+        for(int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
 
-        for (String c : value.substring(1, value.length() -1).split("")) {
+            if(c == '"') inString = !inString;
 
-            if (!isEscaped && c.equals("\"")) {
-                inString = !inString;
+            if(!inString) {
+                if(c == ',' && depth == 0) {
+                    list.add(string2value(index.trim()));
+                    index = "";
+                    continue;
+                } else if(c == '[') {
+                    depth++;
+                } else if(c == ']') {
+                    depth--;
+                    if(depth == -1) {
+                        list.setType(value.substring(i +1).trim());
+                        list.add(string2value(index.trim()));
+                        break;
+                    }
+                }
             }
 
-            isEscaped = c.equals("\\");
-
-            if(!inString && c.equals(",") && depth == 0) {
-                values.add(string2object(currentValue.trim(), root));
-                currentValue = "";
-                continue;
-            }
-
-            if(!inString && c.equals("[")) depth++;
-            if(!inString && c.equals("]")) depth--;
-
-            currentValue += c;
+            index += c;
         }
-        values.add(string2object(currentValue.trim(), root));
-        return values;
+
+        return list;
     }
 }
