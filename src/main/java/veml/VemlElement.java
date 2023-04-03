@@ -1,0 +1,5 @@
+package veml;
+
+interface VemlElement {
+
+}
